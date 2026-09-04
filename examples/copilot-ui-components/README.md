@@ -11,6 +11,7 @@ Interactive UI showcase and examples for the three main CopilotKit UI components
 
 ### 1. Install Dependencies
 ```bash
+cd examples/copilot-ui-components
 npm install
 ```
 
