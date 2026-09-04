@@ -1,7 +1,6 @@
 "use client";
 
-import React from "react";
-import { MessageSquare, PanelRightClose, Bot, Sparkles, Layers } from "lucide-react";
+import { MessageSquare, PanelRightClose, Bot, Sparkles } from "lucide-react";
 
 export type ComponentTab = "chat" | "sidebar" | "popup";
 

@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { CopilotPopup } from "@copilotkit/react-ui";
 import DashboardContent from "./DashboardContent";
-import { Bot, Sliders, Code, Sparkles, Check, ToggleLeft, ToggleRight, MousePointerClick } from "lucide-react";
+import { Bot, Sliders, Code, Check, ToggleLeft, ToggleRight, MousePointerClick } from "lucide-react";
 
 export default function CopilotPopupDemo() {
   const [popupTitle, setPopupTitle] = useState("Copilot Assistant");

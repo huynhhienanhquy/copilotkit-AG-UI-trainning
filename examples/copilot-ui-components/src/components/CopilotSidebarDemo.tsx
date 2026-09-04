@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { CopilotSidebar } from "@copilotkit/react-ui";
 import DashboardContent from "./DashboardContent";
-import { PanelRightClose, Sliders, Code, Sparkles, Check, ToggleLeft, ToggleRight } from "lucide-react";
+import { PanelRightClose, Sliders, Code, Check, ToggleLeft, ToggleRight } from "lucide-react";
 
 export default function CopilotSidebarDemo() {
   const [sidebarTitle, setSidebarTitle] = useState("Copilot Sidebar");

@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { CopilotChat } from "@copilotkit/react-ui";
 import DashboardContent from "./DashboardContent";
-import { MessageSquare, Sliders, Code, Info, Sparkles, Check } from "lucide-react";
+import { MessageSquare, Sliders, Code, Sparkles, Check } from "lucide-react";
 
 export default function CopilotChatDemo() {
   const [chatTitle, setChatTitle] = useState("AI Workspace Assistant");

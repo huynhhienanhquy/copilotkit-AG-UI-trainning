@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import Navbar, { ComponentTab } from "@/components/Navbar";
 import CopilotChatDemo from "@/components/CopilotChatDemo";
 import CopilotSidebarDemo from "@/components/CopilotSidebarDemo";
 import CopilotPopupDemo from "@/components/CopilotPopupDemo";
-import { MessageSquare, PanelRightClose, Bot, BookOpen, Layers, CheckCircle2 } from "lucide-react";
+import { MessageSquare, PanelRightClose, Bot, BookOpen } from "lucide-react";
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<ComponentTab>("chat");
