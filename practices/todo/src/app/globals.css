@@ -1,3 +1,88 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+body { background: #f5f7fb; color: #18233b; }
+.todo-app { max-width: 760px; margin: 0 auto; padding: 64px 24px 120px; }
+.todo-page-heading { margin-bottom: 32px; }
+.todo-eyebrow { color: #3657a4; font-size: 12px; font-weight: 700; letter-spacing: .14em; }
+.todo-page-heading h1 { font-size: clamp(28px, 5vw, 38px); font-weight: 700; letter-spacing: -.04em; margin: 12px 0; line-height: 1.18; }
+.todo-page-heading p { color: #56637a; line-height: 1.6; }
+.todo-list { background: white; border: 1px solid #dce3ee; border-radius: 20px; padding: 24px; box-shadow: 0 12px 32px #18233b06; }
+.todo-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.todo-list-heading h2 { font-size: 20px; font-weight: 650; }
+.todo-muted { color: #58657b; font-size: 13px; }
+.todo-add-form { display: flex; gap: 10px; }
+.todo-field { min-width: 0; width: 100%; border: 1px solid #b6c2d3; border-radius: 10px; padding: 11px 12px; color: #18233b; background: white; font-size: 14px; }
+.todo-field::placeholder { color: #647187; }
+.todo-button { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 8px 14px; border-radius: 9px; font-size: 13px; font-weight: 600; white-space: nowrap; border: 1px solid transparent; cursor: pointer; }
+.todo-button-primary { background: #2853b8; color: #fff; }
+.todo-button-primary:hover { background: #1f4397; }
+.todo-button-secondary { background: #f1f4fa; border-color: #dce3ee; color: #294572; }
+.todo-button-secondary:hover { background: #e5ebf5; }
+.todo-button-danger { color: #a42b37; background: #fff5f5; }
+.todo-button-danger:hover { background: #ffe5e7; }
+.todo-button:disabled { opacity: .55; cursor: not-allowed; }
+.todo-app :is(button,input,textarea):focus-visible,
+.todo-copilot :is(button,input,textarea,a):focus-visible { outline: 3px solid #7198f0; outline-offset: 3px; }
+.todo-feedback { min-height: 36px; padding: 10px 0; font-size: 12px; }
+.todo-error { color: #a12432; font-size: 13px; margin-top: 8px; }
+.todo-empty { text-align: center; padding: 36px 12px; border: 1px dashed #d2dce9; border-radius: 12px; margin-top: 8px; }
+.todo-empty p { font-weight: 600; margin-bottom: 6px; }
+.todo-empty span { font-size: 13px; color: #58657b; }
+.todo-items { list-style: none; padding: 0; margin: 8px 0 0; }
+.todo-item { padding: 16px 0; border-bottom: 1px solid #e6ebf3; }
+.todo-item:last-child { border: 0; padding-bottom: 0; }
+.todo-item-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.todo-checkbox { width: 20px; height: 20px; flex-shrink: 0; accent-color: #2853b8; cursor: pointer; }
+.todo-item-content { flex: 1; min-width: 100px; overflow-wrap: anywhere; }
+.todo-text { font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+.todo-completed { text-decoration: line-through; color: #647187; }
+.todo-assignee { display: inline-block; font-size: 11px; padding: 3px 7px; border-radius: 5px; background: #edf0ff; color: #4c4090; margin-top: 5px; }
+.todo-item-actions, .todo-editor-actions { display: flex; gap: 6px; }
+.todo-editor { display: grid; gap: 8px; margin: 16px 0 0 32px; padding: 16px; background: #f7f9fc; border: 1px solid #dce3ee; border-radius: 12px; }
+.todo-editor label { font-size: 12px; font-weight: 600; }
+.todo-editor-actions { margin-top: 6px; }
+.todo-copilot { --copilot-kit-primary-color: #2853b8; --copilot-kit-contrast-color: #fff; --copilot-kit-background-color: #fff; --copilot-kit-secondary-color: #f1f4fa; }
+.todo-copilot .copilotKitWindow { width: min(420px, calc(100vw - 32px)); border: 1px solid #dce3ee; border-radius: 18px; box-shadow: 0 16px 60px #18233b26; }
+.todo-copilot .copilotKitHeader { background: #234ba8; color: white; padding: 16px 20px; }
+.todo-copilot .copilotKitWindow:not(.open) { visibility: hidden; pointer-events: none; }
+.todo-copilot .copilotKitMessages { padding: 20px; }
+.todo-chat-messages { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+.todo-chat-notice { background: #f0f4fc; border: 1px solid #dce5f5; border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; font-size: 13px; line-height: 1.6; color: #354665; overflow-wrap: anywhere; }
+.todo-chat-notice-error { background: #fff3f3; border-color: #efbfc4; color: #92222f; }
+.todo-chat-caption { display: block; font-size: 10px; font-weight: 700; letter-spacing: .06em; margin-bottom: 6px; }
+.todo-chat-user { width: fit-content; max-width: 88%; margin: 16px 0 16px auto; background: #2853b8; color: white; border-radius: 14px 14px 3px 14px; padding: 12px 14px; overflow-wrap: anywhere; font-size: 14px; }
+.todo-chat-user p { white-space: pre-wrap; line-height: 1.6; }
+.todo-chat-assistant { margin: 16px 0; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; color: #24324b; }
+.todo-chat-assistant p { margin: 8px 0; }
+.todo-chat-assistant :is(ul,ol) { padding-left: 20px; }
+.todo-chat-assistant ul { list-style: disc; }
+.todo-chat-assistant ol { list-style: decimal; }
+.todo-chat-assistant pre { overflow-x: auto; background: #f1f4fa; padding: 10px; border-radius: 8px; }
+.todo-chat-assistant a { color: #234ba8; text-decoration: underline; }
+.todo-chat-assistant table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.todo-chat-assistant :is(td,th) { padding: 6px; border: 1px solid #cbd5e1; }
+.todo-chat-typing { display: flex; gap: 10px; align-items: center; color: #58657b; font-size: 12px; padding: 10px 0; }
+.todo-chat-dots { display: inline-flex; gap: 4px; }
+.todo-chat-dots i { width: 5px; height: 5px; border-radius: 50%; background: #3657a4; animation: todo-typing 1.2s ease-in-out infinite; }
+.todo-chat-dots i:nth-child(2) { animation-delay: .15s; }
+.todo-chat-dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes todo-typing { 0%, 70%, 100% { transform: translateY(0); opacity: .4; } 35% { transform: translateY(-3px); opacity: 1; } }
+.todo-chat-composer { flex-shrink: 0; padding: 14px; border-top: 1px solid #e2e8f2; background: #fff; border-radius: 0 0 18px 18px; }
+.todo-chat-composer form { background: #f7f9fd; border: 1px solid #cbd6e7; border-radius: 12px; padding: 10px; }
+.todo-chat-composer textarea { display: block; width: 100%; min-height: 48px; max-height: 144px; resize: none; background: transparent; border: 0; padding: 4px; font: inherit; font-size: 14px; line-height: 1.5; color: #24324b; }
+.todo-chat-composer textarea::placeholder { color: #647187; }
+.todo-chat-composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.todo-chat-composer-footer > span { font-size: 10px; line-height: 1.5; color: #58657b; }
+.todo-chat-response { margin-top: 12px; }
+@media (min-width: 1200px) { .todo-app { margin-left: max(24px, calc((100vw - 1200px) / 2)); margin-right: 460px; } }
+@media (max-width: 639px) {
+  .todo-app { padding: 32px 16px 100px; }
+  .todo-list { padding: 18px; }
+  .todo-item-actions { margin-left: 32px; }
+  .todo-editor { margin-left: 0; }
+  .todo-copilot .copilotKitWindow { width: 100%; border-radius: 0; }
+  .todo-field, .todo-chat-composer textarea { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .todo-chat-dots i { animation: none; } }
