@@ -5,7 +5,18 @@ import { useTodoCopilot } from "@/hooks/useTodoCopilot";
 import { TODO_TEXT_LIMIT } from "@/stores/todoStore";
 import type { TodoResult } from "@/types/todo";
 
-/** Renders the full task list with an add form, progress counter, and per-item controls. */
+/**
+ * Render the full task list with an add-task form, progress counter, and
+ * per-item controls for editing, toggling completion, and deletion.
+ *
+ * This is the primary UI entry point for the todo feature. It composes
+ * TodoItem for each task, manages the add-task input, and wires up the
+ * Copilot integration via useTodoCopilot. All mutations flow through
+ * the shared store so both the UI and Copilot actions see the same state.
+ *
+ * When to use: Place inside a CopilotKit provider on any page that needs
+ * the todo list.
+ */
 export function TodoList() {
   const { todos, store } = useTodos();
   useTodoCopilot(todos, store);

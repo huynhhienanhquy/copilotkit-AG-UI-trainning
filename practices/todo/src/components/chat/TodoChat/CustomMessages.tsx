@@ -10,12 +10,28 @@ import { CustomUserMessage } from "./CustomUserMessage";
 import { CustomTypingIndicator } from "./CustomTypingIndicator";
 
 /**
- * Renders the full chat transcript with welcome messages, user bubbles,
- * assistant Markdown, action results, and a typing indicator.
+ * Render the full chat transcript with welcome messages, user bubbles,
+ * assistant Markdown, action execution results, and a typing indicator.
  *
- * @param messages - The ordered array of chat messages to render.
- * @param inProgress - Whether the assistant is currently processing.
- * @param children - Additional UI elements (error banners, response controls).
+ * Handles three message types from CopilotKit:
+ *   - TextMessage: user messages are shown in CustomUserMessage bubbles;
+ *     assistant messages are rendered as Markdown with safe link targets.
+ *     Internal role=system messages are silently dropped.
+ *   - ActionExecutionMessage: displayed via the chatComponentsCache render
+ *     function (if registered) or a fallback notice; shows "executing",
+ *     "inProgress", or "complete" status with error styling on failure.
+ *   - ResultMessage: matched to its ActionExecutionMessage by ID to decode
+ *     and display the action's outcome.
+ *
+ * Auto-scrolls to the bottom when new messages arrive, but only if the user
+ * is already near the bottom (within 80px). Tracks content version changes
+ * from streaming to catch in-place mutations.
+ *
+ * When to use: As the Messages slot of CopilotPopup in the TodoChat feature.
+ *
+ * @param messages - The ordered array of chat messages from CopilotKit to render.
+ * @param inProgress - Whether the assistant is currently processing; shows the typing indicator.
+ * @param children - Additional UI elements injected by the parent (error banners, response controls).
  */
 export function CustomMessages({ messages, inProgress, children }: MessagesProps) {
   const { labels } = useChatContext();

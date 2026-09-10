@@ -7,23 +7,55 @@ import { CustomMessages } from "./CustomMessages";
 import { CustomSystemMessage } from "./CustomSystemMessage";
 
 type Session = {
+  /** Delivers a user message to Copilot and awaits the full response cycle. */
   send: InputProps["onSend"];
+  /** Re-runs the last assistant response to recover from a transient failure. */
   retry: () => void;
+  /** Aborts the in-flight request without treating cancellation as an error. */
   stop: () => void;
+  /** True while a send, retry, or stop operation is in progress. */
   busy: boolean;
+  /** User-facing error message from the last failed operation; empty when idle. */
   error: string;
+  /** Ref to the floating toggle button, used to return focus after the chat closes. */
   toggleRef: React.RefObject<HTMLButtonElement>;
 };
 const SessionContext = createContext<Session | null>(null);
+/**
+ * Access the current chat session or throw if used outside the provider.
+ *
+ * Used internally by ConnectedInput, ConnectedMessages, and ConnectedResponseButton
+ * to access send/retry/stop without prop drilling.
+ *
+ * @returns The Session object from the nearest SessionContext provider.
+ * @throws {Error} If no SessionContext provider is found in the tree.
+ */
 function useSession() {
   const session = useContext(SessionContext);
   if (!session) throw new Error("Todo chat session is missing.");
   return session;
 }
+/**
+ * Wire CustomInput to the session so it can call send and read busy state.
+ *
+ * This is the Input slot passed to CopilotPopup. It bridges the gap between
+ * CopilotKit's InputProps interface and the session's send/retry/stop API.
+ *
+ * @param props - Standard CopilotKit InputProps (inProgress, onSend, isVisible).
+ */
 function ConnectedInput(props: InputProps) {
   const session = useSession();
   return <CustomInput {...props} inProgress={session.busy} onSend={session.send} />;
 }
+/**
+ * Wrap CustomMessages with the session's error banner and busy state.
+ *
+ * This is the Messages slot passed to CopilotPopup. It injects the session
+ * error (if any) as a CustomSystemMessage with tone="error" above the
+ * standard message transcript.
+ *
+ * @param props - Standard CopilotKit MessagesProps (messages, inProgress, children).
+ */
 function ConnectedMessages(props: MessagesProps) {
   const session = useSession();
   return <CustomMessages {...props} inProgress={session.busy}>
@@ -31,11 +63,26 @@ function ConnectedMessages(props: MessagesProps) {
     {props.children}
   </CustomMessages>;
 }
+/**
+ * Render the retry/stop button wired to the session's busy state.
+ *
+ * Shows "Stop response" while a request is in flight, or "Retry response"
+ * after a failure or completion. This is the ResponseButton slot passed to
+ * CopilotPopup.
+ */
 function ConnectedResponseButton() {
   const session = useSession();
   return <button type="button" className="todo-button todo-button-secondary"
     onClick={session.busy ? session.stop : session.retry}>{session.busy ? "Stop response" : "Retry response"}</button>;
 }
+/**
+ * Floating chat toggle button that opens/closes the CopilotPopup.
+ *
+ * Uses the session's toggleRef so the parent can return focus to this button
+ * after the chat closes. Shows open/close icons from CopilotKit's chat context.
+ *
+ * @param props - CopilotKit ButtonProps with open state and setOpen callback.
+ */
 function ChatToggle({ open, setOpen }: ButtonProps) {
   const session = useSession();
   const { icons } = useChatContext();
@@ -46,9 +93,24 @@ function ChatToggle({ open, setOpen }: ButtonProps) {
 }
 
 /**
- * The beta Popup's sendMessage does not await appendMessage.
- * Use one public hook instance for send/retry/stop so failures are caught and cancellation
- * reaches the same AbortController. The Popup still owns its window, header and transcript.
+ * Provide a self-contained chat session for the todo list with send, retry,
+ * stop, and error recovery.
+ *
+ * The beta CopilotKit Popup does not expose a way to await appendMessage or
+ * share a single AbortController across send/retry/stop. This component
+ * creates one public useCopilotChat hook instance, wraps it in a Session
+ * context, and wires CustomInput, CustomMessages, and a retry/stop button
+ * as CopilotPopup slots. The session manages a busy flag, error state, and
+ * a 60-second timeout that auto-aborts unresponsive requests.
+ *
+ * Completion detection is deferred to a useEffect that checks the transcript
+ * after React commits, because beta.2's asStream mode silently drops transport
+ * errors. This avoids treating an empty/unfinished stream as success.
+ *
+ * Side effects: Registers CopilotKit actions (updateTodoList, updateTodo,
+ * deleteTodo) indirectly through useTodoCopilot called by TodoList.
+ *
+ * When to use: Place inside a CopilotKit provider alongside TodoList.
  */
 export function TodoCopilot() {
   const chat = useCopilotChat();
@@ -81,6 +143,20 @@ export function TodoCopilot() {
     else completion.reject(new Error("Copilot returned no complete response."));
   }, [completion, chat.visibleMessages]);
 
+  /**
+   * Execute a Copilot chat operation (send, retry, or reload) with busy/error
+   * management, a 60-second timeout, and transcript-based completion detection.
+   *
+   * Only one operation can run at a time (guarded by locked ref). Sets busy=true
+   * for the duration, records a snapshot of message IDs before the operation
+   * starts, then waits for a new assistant message to appear in the transcript.
+   * If no complete response arrives before the timeout, the request is aborted
+   * via stopGeneration. Errors from the network or timeout are surfaced to the
+   * user as a friendly message; cancellation (AbortError) is silently swallowed.
+   *
+   * @param operation - The async Copilot call to execute (appendMessage, reloadMessages, etc.).
+   * @throws {Error} If the operation fails and the failure is not a user-initiated stop.
+   */
   async function run(operation: () => Promise<void>) {
     if (locked.current) throw new Error("A response is already in progress.");
     locked.current = true;

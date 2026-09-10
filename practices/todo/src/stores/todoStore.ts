@@ -1,34 +1,87 @@
 import { nanoid } from "nanoid";
 import type { Todo, TodoPatch, TodoResult } from "@/types/todo";
 
+/** Maximum allowed length for task text, enforced by parsePatch and the UI. */
 export const TODO_TEXT_LIMIT = 500;
+
+/** Maximum allowed length for assignee names, enforced by parsePatch and the UI. */
 export const ASSIGNEE_LIMIT = 80;
 
-/** Creates a failed result for invalid input scenarios. */
+/**
+ * Build a failed TodoResult for input that does not meet validation rules.
+ *
+ * Used internally when store methods receive malformed arguments from the UI
+ * or Copilot actions, so callers can display a user-friendly error without
+ * exposing implementation details.
+ *
+ * @param message - Human-readable explanation of what went wrong.
+ * @returns A TodoResult with ok=false and code INVALID_INPUT.
+ */
 const invalid = (message: string): TodoResult => ({ ok: false, code: "INVALID_INPUT", message });
 
-/** Creates a failed result when a requested task cannot be found. */
+/**
+ * Build a failed TodoResult for a task ID that no longer exists in the list.
+ *
+ * Called after a delete or when a Copilot action references an ID that was
+ * already removed, preventing accidental resurrection of deleted tasks.
+ *
+ * @returns A TodoResult with ok=false and code NOT_FOUND.
+ */
 const missing = (): TodoResult => ({
   ok: false, code: "NOT_FOUND",
   message: "This task no longer exists. Refresh your selection and try again.",
 });
 
-/** Creates a successful result with a user-facing message. */
+/**
+ * Build a successful TodoResult with a message to display in the UI feedback area.
+ *
+ * @param message - Confirmation text shown to the user after a successful mutation.
+ * @returns A TodoResult with ok=true.
+ */
 const success = (message: string): TodoResult => ({ ok: true, message });
 
-/** Checks whether a value is a plain object (not null or array). */
+/**
+ * Check whether a value is a plain object (not null, not an array).
+ *
+ * Used to guard against unexpected Copilot action payloads before accessing
+ * named properties. Returns false for primitives, arrays, and null.
+ *
+ * @param value - The value to test, typically from JSON-decoded action arguments.
+ * @returns True if the value is a non-null, non-array object.
+ */
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** Validates that an ID is a non-empty string within the allowed length. */
+/**
+ * Check whether a value is a valid task ID: a non-empty trimmed string of at most 128 characters.
+ *
+ * Rejects undefined, numbers, empty strings, and oversized IDs to prevent
+ * injection or accidental matching against malformed Copilot output.
+ *
+ * @param id - The value to validate, typically from action arguments or UI events.
+ * @returns True if the value satisfies ID constraints.
+ */
 const validId = (id: unknown): id is string =>
   typeof id === "string" && id.trim().length > 0 && id.length <= 128;
 
 /**
- * Parses and validates raw input into a TodoPatch, or returns an error string.
+ * Parse raw input into a TodoPatch, returning a human-readable error string on failure.
  *
- * @param value - Raw input from UI or Copilot action arguments.
- * @returns A validated TodoPatch if valid, or a human-readable error message.
+ * Validates each present field independently: text must be non-empty and within
+ * TODO_TEXT_LIMIT, isCompleted must be a boolean, and assignedTo must be a string
+ * within ASSIGNEE_LIMIT. An empty assignedTo is converted to undefined (unassign).
+ * Unknown fields cause an immediate rejection to prevent accidental state corruption.
+ *
+ * @param value - Raw input from UI forms or Copilot action arguments.
+ * @returns A validated TodoPatch if all fields pass, or a single error string describing the first failure.
+ *
+ * @example
+ * const result = parsePatch({ text: "Buy milk", isCompleted: true });
+ * // result === { text: "Buy milk", isCompleted: true }
+ *
+ * @example
+ * const result = parsePatch({ text: "   " });
+ * // result === "Task text cannot be empty."
  */
 function parsePatch(value: unknown): TodoPatch | string {
   if (!isRecord(value)) return "Task changes must be an object.";
@@ -54,8 +107,17 @@ function parsePatch(value: unknown): TodoPatch | string {
 }
 
 /**
- * Creates an isolated todo store for a single list instance.
- * Synchronous mutations let UI and Copilot tool calls share the latest snapshot.
+ * Create an isolated todo store for a single list instance.
+ *
+ * Each call produces an independent store with its own todo array, deleted-ID
+ * registry, and listener set. The store exposes a synchronous external-store
+ * interface (subscribe / getSnapshot) compatible with React's useSyncExternalStore,
+ * plus mutation methods that both the UI and Copilot tool calls can invoke
+ * directly. Mutations are synchronous so the latest snapshot is always available
+ * without async coordination.
+ *
+ * Side effects: Each mutation immediately publishes the new state to all
+ * subscribed React components.
  *
  * @returns An object with subscribe, getSnapshot, and mutation methods.
  */
@@ -74,10 +136,20 @@ export function createTodoStore() {
       return () => { listeners.delete(listener); };
     },
     /**
-     * Adds a new task with the given text.
+     * Add a new task to the list.
      *
-     * @param text - Task description, 1–500 characters.
-     * @returns Success message or validation error.
+     * Generates a unique ID via nanoid, sets isCompleted to false, and appends
+     * the task to the end of the list. The text is trimmed and validated before
+     * creation.
+     *
+     * Side effects: Publishes the updated list to all subscribers.
+     *
+     * @param text - The task description, 1–500 characters after trimming. Empty or whitespace-only text is rejected.
+     * @returns A TodoResult with ok=true on success, or INVALID_INPUT if the text fails validation.
+     *
+     * @example
+     * store.addTodo("Buy groceries");
+     * // => { ok: true, message: "Task added." }
      */
     addTodo(text: string): TodoResult {
       const patch = parsePatch({ text });
@@ -86,11 +158,22 @@ export function createTodoStore() {
       return success("Task added.");
     },
     /**
-     * Updates an existing task by ID with the provided fields.
+     * Update an existing task by applying a partial patch.
      *
-     * @param id - ID of the task to update.
-     * @param changes - Partial patch containing text, isCompleted, or assignedTo.
-     * @returns Success message, validation error, or NOT_FOUND if the task was deleted.
+     * Only the fields present in the changes object are modified; all other
+     * fields are preserved unchanged. The task is looked up by exact ID match.
+     * If the ID does not exist (e.g., it was deleted), NOT_FOUND is returned
+     * without creating a new task.
+     *
+     * Side effects: Publishes the updated list to all subscribers.
+     *
+     * @param id - The exact ID of the task to update. Must be a non-empty string ≤ 128 chars.
+     * @param changes - A partial object with any of: text (1–500 chars), isCompleted (boolean), assignedTo (string, empty to unassign, omit to preserve).
+     * @returns A TodoResult: ok=true on success, INVALID_INPUT for bad data, NOT_FOUND if the task was deleted.
+     *
+     * @example
+     * store.updateTodo("abc123", { text: "Updated task", isCompleted: true });
+     * // => { ok: true, message: "Task updated." }
      */
     updateTodo(id: unknown, changes: unknown): TodoResult {
       if (!validId(id)) return invalid("A valid task ID is required.");
@@ -101,10 +184,19 @@ export function createTodoStore() {
       return success("Task updated.");
     },
     /**
-     * Toggles the completion status of a task.
+     * Toggle the completion status of a task.
      *
-     * @param id - ID of the task to toggle.
-     * @returns Success message or NOT_FOUND if the task was deleted.
+     * Flips isCompleted between true and false. Returns a contextual message
+     * indicating whether the task was completed or reopened.
+     *
+     * Side effects: Publishes the updated list to all subscribers.
+     *
+     * @param id - The exact ID of the task to toggle. Must exist in the current list.
+     * @returns A TodoResult: ok=true with "Task completed." or "Task reopened.", or NOT_FOUND if the task was deleted.
+     *
+     * @example
+     * store.toggleComplete("abc123");
+     * // => { ok: true, message: "Task completed." }
      */
     toggleComplete(id: string): TodoResult {
       const todo = todos.find((item) => item.id === id);
@@ -113,10 +205,20 @@ export function createTodoStore() {
       return success(todo.isCompleted ? "Task reopened." : "Task completed.");
     },
     /**
-     * Removes a task from the list and records its ID to prevent resurrection.
+     * Permanently remove a task from the list.
      *
-     * @param id - ID of the task to delete.
-     * @returns Success message, validation error, or NOT_FOUND.
+     * The task's ID is added to an internal deletedIds set so that updateTodoList
+     * cannot resurrect it with a stale ID from Copilot. This is a one-way
+     * operation within the store's lifetime.
+     *
+     * Side effects: Publishes the filtered list to all subscribers and records the ID in deletedIds.
+     *
+     * @param id - The exact ID of the task to delete. Must be a valid, existing ID.
+     * @returns A TodoResult: ok=true on success, INVALID_INPUT for bad IDs, NOT_FOUND if already removed.
+     *
+     * @example
+     * store.deleteTodo("abc123");
+     * // => { ok: true, message: "Task deleted." }
      */
     deleteTodo(id: unknown): TodoResult {
       if (!validId(id)) return invalid("A valid task ID is required.");
@@ -126,11 +228,25 @@ export function createTodoStore() {
       return success("Task deleted.");
     },
     /**
-     * Adds new tasks or updates existing ones in a batch (1–100 items).
-     * Validates the full batch atomically; rejects if any item is invalid.
+     * Add new tasks or update existing ones in a single atomic batch (1–100 items).
      *
-     * @param items - Array of task objects with at least an `id` field.
-     * @returns Success message with count, validation error, or NOT_FOUND for deleted IDs.
+     * Each item must have a valid ID. If the ID matches an existing task, the
+     * provided fields are merged; if the ID is new, a task is created with
+     * isCompleted=false and the text field is required. Deleted IDs are rejected
+     * to prevent resurrection. The entire batch is validated before any mutation
+     * occurs, so a single invalid item rolls back the whole operation.
+     *
+     * Side effects: Publishes the new list to all subscribers if validation passes.
+     *
+     * @param items - An array of 1–100 task objects, each with at least an `id` field and optionally text, isCompleted, or assignedTo.
+     * @returns A TodoResult: ok=true with item count, INVALID_INPUT for structural or field errors, NOT_FOUND for deleted IDs.
+     *
+     * @example
+     * store.updateTodoList([
+     *   { id: "new-1", text: "Write docs" },
+     *   { id: "existing-id", isCompleted: true },
+     * ]);
+     * // => { ok: true, message: "2 tasks saved." }
      */
     updateTodoList(items: unknown): TodoResult {
       if (!Array.isArray(items) || items.length === 0 || items.length > 100) {

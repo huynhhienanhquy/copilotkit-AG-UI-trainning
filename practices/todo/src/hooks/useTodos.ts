@@ -2,10 +2,21 @@ import { useState, useSyncExternalStore } from "react";
 import { createTodoStore } from "@/stores/todoStore";
 
 /**
- * Provides the current todo list and store methods for a component tree.
- * Creates one store per mount; useSyncExternalStore ensures React re-renders on every mutation.
+ * Provide the current todo list and store mutation methods to a React component tree.
  *
- * @returns The reactive todo array and the store with mutation methods.
+ * Creates one isolated store per component mount via useState. The store is
+ * subscribed through useSyncExternalStore, so React automatically re-renders
+ * when any mutation publishes a new snapshot. This hook is the single source
+ * of truth for both the UI and the Copilot actions (via useTodoCopilot).
+ *
+ * When to use: Any component that needs to read or mutate the todo list.
+ *
+ * @returns An object containing the reactive `todos` array and the `store`
+ *   object with methods: addTodo, updateTodo, toggleComplete, deleteTodo, updateTodoList.
+ *
+ * @example
+ * const { todos, store } = useTodos();
+ * store.addTodo("Buy milk");
  */
 export function useTodos() {
   const [store] = useState(createTodoStore);

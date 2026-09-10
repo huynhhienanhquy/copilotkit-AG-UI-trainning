@@ -3,12 +3,23 @@ import type { InputProps } from "@copilotkit/react-ui";
 import { CustomSystemMessage } from "./CustomSystemMessage";
 
 /**
- * Multi-line chat input with send-on-Enter, Shift+Enter newline, IME composition
- * handling, and error recovery that preserves the user's draft.
+ * Multi-line chat input with send-on-Enter, Shift+Enter newline, and
+ * IME composition handling for languages like Vietnamese and Chinese.
  *
- * @param inProgress - Whether the assistant is currently processing a request.
- * @param onSend - Async callback to deliver the trimmed message to Copilot.
- * @param isVisible - Controls auto-focus when the chat panel opens.
+ * Features:
+ *   - Auto-resizes the textarea up to 144px as the user types.
+ *   - Blocks duplicate sends while a request is in flight or during IME composition.
+ *   - On network failure, restores the submitted text and shows an error so the
+ *     user can retry without retyping.
+ *   - Auto-focuses when the chat panel opens (controlled by isVisible).
+ *
+ * This component replaces the default CopilotKit input inside TodoCopilot.
+ *
+ * When to use: As the Input slot of CopilotPopup in the TodoChat feature.
+ *
+ * @param inProgress - Whether the assistant is currently processing a request; disables the send button and textarea.
+ * @param onSend - Async callback that delivers the trimmed message to Copilot; may throw on network failure.
+ * @param isVisible - When true, the textarea receives focus (e.g., when the chat panel opens).
  */
 export function CustomInput({ inProgress, onSend, isVisible = true }: InputProps) {
   const [text, setText] = useState("");
@@ -31,8 +42,12 @@ export function CustomInput({ inProgress, onSend, isVisible = true }: InputProps
   }, [text]);
 
   /**
-   * Sends the current draft if valid and not already in progress.
-   * Restores the draft on failure so the user can retry.
+   * Send the current draft to Copilot if it is non-empty and no request is in flight.
+   *
+   * Clears the textarea immediately for a responsive feel, then awaits onSend.
+   * If onSend throws (network error, timeout, abort), the original text is
+   * restored and an error banner is shown so the user can retry. The sending
+   * ref prevents double-submits while the async operation is pending.
    */
   async function send() {
     if (!text.trim() || inProgress || sendingRef.current || composingRef.current) return;

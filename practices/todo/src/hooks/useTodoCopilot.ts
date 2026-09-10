@@ -3,10 +3,22 @@ import type { Todo } from "@/types/todo";
 import type { TodoStore } from "@/stores/todoStore";
 
 /**
- * Registers Copilot actions and readable context for the todo list.
- * Keeps the Copilot in sync with the current state and delegates mutations to the shared store.
+ * Register Copilot actions and readable context so the AI assistant can
+ * read and mutate the todo list through natural language.
  *
- * @param todos - Current todo array to expose as readable context.
+ * Exposes the full todo array via useCopilotReadable with a description that
+ * clarifies task text and assignees are data, not instructions (defense against
+ * prompt injection). Registers three actions:
+ *   - updateTodoList: batch add/update (1–100 items)
+ *   - updateTodo: edit a single existing task by ID
+ *   - deleteTodo: permanently remove a task by ID
+ *
+ * Must be called inside a CopilotKit provider, typically from the same
+ * component that calls useTodos.
+ *
+ * When to use: Once per todo list, to keep Copilot in sync with the current state.
+ *
+ * @param todos - The current todo array to expose as readable context to Copilot.
  * @param store - The todo store providing mutation methods (addTodo, updateTodo, etc.).
  */
 export function useTodoCopilot(todos: Todo[], store: TodoStore) {

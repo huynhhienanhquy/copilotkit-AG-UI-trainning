@@ -10,11 +10,25 @@ interface TodoItemProps {
 }
 
 /**
- * Displays a single task with toggle, edit, delete, and inline editor for text and assignee.
+ * Display a single task with toggle, edit, delete, and an inline editor for
+ * text and assignee changes.
  *
- * @param todo - The task to render.
- * @param toggleComplete - Callback to toggle the completion status by ID.
- * @param deleteTodo - Callback to remove the task by ID.
+ * The component supports three modes:
+ *   1. Read-only: shows task text, assignee badge, and action buttons.
+ *   2. Editing: replaces the read-only view with a form containing text and
+ *      assignee inputs, plus Save/Cancel buttons.
+ *   3. Error: displays a validation error below the editor while keeping the
+ *      draft intact so the user can correct it.
+ *
+ * Keyboard: Escape cancels editing and returns focus to the Edit button.
+ * The draft is initialized from the current task data on edit start, so
+ * Cancel always restores the original state without side effects.
+ *
+ * When to use: Inside a TodoList for each task in the array.
+ *
+ * @param todo - The task object to render.
+ * @param toggleComplete - Callback to toggle the task's completion status by ID.
+ * @param deleteTodo - Callback to permanently remove the task by ID.
  * @param updateTodo - Callback to apply a partial patch to the task by ID.
  */
 export function TodoItem({ todo, toggleComplete, deleteTodo, updateTodo }: TodoItemProps) {
@@ -25,15 +39,27 @@ export function TodoItem({ todo, toggleComplete, deleteTodo, updateTodo }: TodoI
   const editButton = useRef<HTMLButtonElement>(null);
   const id = useId();
 
-  /** Clears the draft state and returns focus to the Edit button. */
+  /**
+   * Discard the current draft and return focus to the Edit button.
+   *
+   * Called on Cancel, Escape key, or after a successful save. Clears both
+   * the draft state and any lingering error message.
+   */
   function finishEditing() {
     setDraft(null);
     setError("");
     editButton.current?.focus();
   }
   /**
-   * Validates the draft and applies only changed fields to the task.
-   * Keeps the draft open if validation fails so the user can correct it.
+   * Validate the draft and apply only the fields that changed to the task.
+   *
+   * Compares the draft against the original values captured at edit start.
+   * Only modified fields are included in the patch, so unrelated fields
+   * (e.g., isCompleted changed by Copilot concurrently) are never overwritten.
+   * If validation fails, the error is displayed and the draft is preserved
+   * so the user can fix it without re-entering everything.
+   *
+   * @param event - The form submit event, prevented from causing a page reload.
    */
   function save(event: React.FormEvent) {
     event.preventDefault();
@@ -46,7 +72,15 @@ export function TodoItem({ todo, toggleComplete, deleteTodo, updateTodo }: TodoI
     if (!result.ok) { setError(result.message); return; }
     finishEditing();
   }
-  /** Displays the error message from a failed result, or clears it on success. */
+  /**
+   * Display the error message from a failed result, or clear it on success.
+   *
+   * Used as a callback for toggleComplete, deleteTodo, and other store
+   * operations that return a TodoResult, keeping error feedback consistent
+   * across all actions.
+   *
+   * @param result - The TodoResult from a store mutation.
+   */
   function report(result: TodoResult) {
     setError(result.ok ? "" : result.message);
   }
