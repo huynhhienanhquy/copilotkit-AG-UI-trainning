@@ -1,0 +1,69 @@
+{
+  "_comment": "MCP Servers template for Codex Agent Kit. Copy to your IDE-specific location and fill in values.",
+  "_locations": {
+    "Cursor": ".cursor/mcp.json",
+    "Claude_Desktop_Windows": "%APPDATA%/Claude/claude_desktop_config.json",
+    "Claude_Desktop_macOS": "~/Library/Application Support/Claude/claude_desktop_config.json",
+    "Cline_Roo_Code": ".cline/mcp-servers.json"
+  },
+  "mcpServers": {
+    "filesystem": {
+      "_comment": "File System access - read/write project files",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "<ABSOLUTE_PATH_TO_PROJECT_ROOT>"
+      ],
+      "env": {}
+    },
+    "fetch": {
+      "_comment": "Fetch / HTTP - let the agent call external URLs",
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch"
+      ],
+      "env": {}
+    },
+    "github": {
+      "_comment": "GitHub - read PRs, issues, commits, create branches",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "<YOUR_GITHUB_PAT>"
+      }
+    },
+    "postgres": {
+      "_comment": "PostgreSQL - read/query a postgres database",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "<POSTGRES_CONNECTION_STRING>"
+      ],
+      "env": {}
+    },
+    "sqlite": {
+      "_comment": "SQLite - lightweight local database",
+      "command": "uvx",
+      "args": [
+        "mcp-server-sqlite",
+        "--db-path",
+        "<PATH_TO_DB_FILE>"
+      ],
+      "env": {}
+    },
+    "puppeteer": {
+      "_comment": "Browser / Puppeteer - web scraping and UI testing",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-puppeteer"
+      ],
+      "env": {}
+    }
+  }
+}

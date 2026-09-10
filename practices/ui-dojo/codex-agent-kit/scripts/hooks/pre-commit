@@ -1,0 +1,39 @@
+﻿#!/usr/bin/env bash
+# pre-commit hook for codex-agent-kit
+# Automatically runs validate_kit.py and rebuilds AGENTS.md whenever
+# files in rules/ or .agents/skills/ are staged.
+#
+# Install:
+#   cp scripts/hooks/pre-commit .git/hooks/pre-commit
+#   chmod +x .git/hooks/pre-commit
+#
+# Or use install_hooks.sh to install automatically.
+
+set -euo pipefail
+
+CHANGED=$(git diff --cached --name-only)
+
+RULES_CHANGED=$(echo "$CHANGED" | grep -E '^(rules/|\.agents/skills/)' || true)
+
+if [ -z "$RULES_CHANGED" ]; then
+    exit 0
+fi
+
+echo "[pre-commit] rules/ or skills/ changed, running validation..."
+
+if ! command -v python &>/dev/null; then
+    echo "[pre-commit] WARNING: python not found, skipping validation." >&2
+    exit 0
+fi
+
+python scripts/validate_kit.py
+if [ $? -ne 0 ]; then
+    echo "[pre-commit] FAIL: validate_kit.py reported errors. Fix them before committing." >&2
+    exit 1
+fi
+
+python scripts/build_agents_md.py
+
+git add AGENTS.md MANIFEST.txt .cursorrules .clinerules .github/copilot-instructions.md 2>/dev/null || true
+
+echo "[pre-commit] AGENTS.md rebuilt and cross-IDE files synced."
