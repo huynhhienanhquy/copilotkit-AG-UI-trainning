@@ -1,9 +1,11 @@
 import { AbstractAgent } from "@ag-ui/client";
+
 import {
   EventType,
   type RunAgentInput,
   type BaseEvent,
 } from "@ag-ui/core";
+
 import { Observable } from "rxjs";
 import { randomUUID } from "node:crypto";
 
@@ -14,16 +16,39 @@ import {
   updateTaskState,
 } from "./tools/index.js";
 
+import { initialState } from "./state.js";
+
 export class CustomAgent extends AbstractAgent {
   run(input: RunAgentInput): Observable<BaseEvent> {
     return new Observable<BaseEvent>((subscriber) => {
       const messageId = randomUUID();
+
+      // =========================
+      // RUN STARTED
+      // =========================
 
       subscriber.next({
         type: EventType.RUN_STARTED,
         threadId: input.threadId,
         runId: input.runId,
       });
+
+      // =========================
+      // INITIAL STATE
+      // =========================
+
+      subscriber.next({
+        type: EventType.STATE_SNAPSHOT,
+        snapshot: {
+          ...initialState,
+          status: "thinking",
+          task: "Processing user request",
+        },
+      });
+
+      // =========================
+      // GET USER INPUT
+      // =========================
 
       const lastMessage = input.messages.at(-1);
 
@@ -37,15 +62,36 @@ export class CustomAgent extends AbstractAgent {
         userInput = lastMessage.content.trim();
       }
 
+      // =========================
+      // STATE -> WORKING
+      // =========================
+
+      subscriber.next({
+        type: EventType.STATE_DELTA,
+        delta: [
+          {
+            op: "replace",
+            path: "/status",
+            value: "working",
+          },
+          {
+            op: "replace",
+            path: "/progress",
+            value: 25,
+          },
+        ],
+      });
+
+      // =========================
+      // TOOL ROUTING
+      // =========================
+
       let response: string;
 
       try {
         const lowerInput = userInput.toLowerCase();
 
-        // ==============================
-        // CALCULATOR TOOL
-        // ==============================
-
+        // CALCULATOR
         if (
           lowerInput.startsWith("calc") ||
           lowerInput.startsWith("calculator")
@@ -94,45 +140,41 @@ export class CustomAgent extends AbstractAgent {
                 throw new Error("Unsupported operator");
             }
 
-            const result = calculator(a, b, operation);
+            const result = calculator(
+              a,
+              b,
+              operation,
+            );
 
-            response = `Calculator result: ${a} ${operator} ${b} = ${result}`;
+            response =
+              `Calculator result: ${a} ${operator} ${b} = ${result}`;
           }
         }
 
-        // ==============================
-        // CURRENT TIME TOOL
-        // ==============================
-
+        // CURRENT TIME
         else if (lowerInput.includes("time")) {
           const time = getCurrentTime();
 
           response = `Current time: ${time}`;
         }
 
-        // ==============================
-        // OPEN URL TOOL
-        // ==============================
-
+        // OPEN URL
         else if (lowerInput.startsWith("open ")) {
-          const url = userInput.slice(5).trim();
+          const url = userInput
+            .slice(5)
+            .trim();
 
           const result = openUrl(url);
 
-          if (result.success) {
-            response = `URL validated: ${result.url}`;
-          } else {
-            response = `Open URL failed: ${result.error}`;
-          }
+          response = result.success
+            ? `URL validated: ${result.url}`
+            : `Open URL failed: ${result.error}`;
         }
 
-        // ==============================
-        // UPDATE TASK TOOL
-        // ==============================
-
+        // TASK
         else if (lowerInput.startsWith("task")) {
           const state = updateTaskState(
-            "Learn AG-UI Tools",
+            "Learn AG-UI State Sync",
             50,
           );
 
@@ -140,10 +182,7 @@ export class CustomAgent extends AbstractAgent {
             `Task updated: ${state.task}, progress: ${state.progress}%`;
         }
 
-        // ==============================
-        // DEFAULT RESPONSE
-        // ==============================
-
+        // DEFAULT
         else {
           response =
             "Available commands: calculator 4*33, calc 10/2, time, open <url>, task";
@@ -155,9 +194,24 @@ export class CustomAgent extends AbstractAgent {
             : "Unknown tool error.";
       }
 
-      // ==============================
-      // START MESSAGE
-      // ==============================
+      // =========================
+      // STATE -> 50%
+      // =========================
+
+      subscriber.next({
+        type: EventType.STATE_DELTA,
+        delta: [
+          {
+            op: "replace",
+            path: "/progress",
+            value: 50,
+          },
+        ],
+      });
+
+      // =========================
+      // MESSAGE START
+      // =========================
 
       subscriber.next({
         type: EventType.TEXT_MESSAGE_START,
@@ -165,12 +219,11 @@ export class CustomAgent extends AbstractAgent {
         role: "assistant",
       });
 
-      // ==============================
+      // =========================
       // MANUAL STREAMING
-      // ==============================
+      // =========================
 
       const words = response.split(" ");
-
       let index = 0;
 
       const timer = setInterval(() => {
@@ -181,16 +234,66 @@ export class CustomAgent extends AbstractAgent {
             delta: `${words[index]} `,
           });
 
+          const progress =
+            50 +
+            Math.floor(
+              ((index + 1) / words.length) * 40,
+            );
+
+          subscriber.next({
+            type: EventType.STATE_DELTA,
+            delta: [
+              {
+                op: "replace",
+                path: "/progress",
+                value: progress,
+              },
+            ],
+          });
+
           index++;
           return;
         }
 
         clearInterval(timer);
 
+        // =========================
+        // MESSAGE END
+        // =========================
+
         subscriber.next({
           type: EventType.TEXT_MESSAGE_END,
           messageId,
         });
+
+        // =========================
+        // STATE COMPLETED
+        // =========================
+
+        subscriber.next({
+          type: EventType.STATE_DELTA,
+          delta: [
+            {
+              op: "replace",
+              path: "/status",
+              value: "completed",
+            },
+            {
+              op: "replace",
+              path: "/progress",
+              value: 100,
+            },
+            {
+              op: "replace",
+              path: "/result",
+              value: response,
+            },
+          ],
+        });
+
+        // =========================
+        // RUN FINISHED
+        // =========================
 
         subscriber.next({
           type: EventType.RUN_FINISHED,
@@ -210,5 +313,7 @@ export class CustomAgent extends AbstractAgent {
 
 export const agent = new CustomAgent({
   agentId: "practice-agent",
-  description: "AG-UI custom streaming practice agent",
+  description:
+    "AG-UI custom streaming and state synchronization practice agent",
+  initialState,
 });
