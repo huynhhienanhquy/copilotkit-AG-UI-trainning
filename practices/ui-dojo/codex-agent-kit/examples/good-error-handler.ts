@@ -88,7 +88,7 @@ function handleError(error: unknown, requestId: string, log: StructuredLogger) {
   };
 }
 
-async function handler(
+export async function handler(
   req: { body: { email?: string }; requestId?: string },
   { log }: HandlerDependencies
 ) {
