@@ -3,6 +3,8 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --font-geist-sans: "Segoe UI", Arial, Helvetica, sans-serif;
+  --font-geist-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
 
   /* Threads-panel theme-map — values pulled verbatim from CopilotKit's V2
      design system (the same one mastra's CopilotSidebar renders with;
@@ -73,7 +75,7 @@ body > [role="presentation"] {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans);
 }
 
 body,

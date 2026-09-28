@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "clean:mastra": "node scripts/clean-mastra-output.mjs",
+    "premastra:dev": "npm run clean:mastra",
     "mastra:dev": "mastra dev",
     "mastra:build": "node scripts/mastra-build.mjs",
     "mastra:start": "mastra start",
@@ -118,6 +120,7 @@
       "@assistant-ui/tap": "0.3.2"
     },
     "patchedDependencies": {
+      "@mastra/deployer@1.50.0": "patches/@mastra__deployer@1.50.0.patch",
       "mastra@1.18.1": "patches/mastra@1.18.1.patch"
     }
   }

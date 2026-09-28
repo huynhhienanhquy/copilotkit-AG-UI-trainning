@@ -1,7 +1,7 @@
 import "dotenv/config";
 import * as readline from "readline";
 import { randomUUID } from "@ag-ui/client";
-import { agent } from "./agent";
+import { agent, prepareAgentMemory } from "./agent.js";
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -10,7 +10,7 @@ const rl = readline.createInterface({
 
 async function chatLoop() {
   console.log(
-    "🤖 AG-UI chat started! Type your messages and press Enter. Press Ctrl+D to quit.\n",
+    "🤖 AG-UI chat started! Type your messages and press Enter. Press Ctrl+C or send EOF to quit.\n",
   );
 
   return new Promise<void>((resolve) => {
@@ -94,6 +94,7 @@ async function chatLoop() {
 }
 
 async function main() {
+  await prepareAgentMemory();
   await chatLoop();
 }
 

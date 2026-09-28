@@ -6,6 +6,8 @@
     "start": "tsx src/index.ts",
     "dev": "tsx --watch src/index.ts",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/*.test.ts",
     "clean": "git clean -fdX --exclude=\"!.env\""
   },
   "dependencies": {

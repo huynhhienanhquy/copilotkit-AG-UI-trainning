@@ -7,6 +7,7 @@ import { weatherTool } from "./tools/weather.tool";
 import { browserTool } from "./tools/browser.tool";
 import { calculatorTool } from "./tools/calculator.tool";
 import { urlLauncherTool } from "./tools/url-launcher.tool";
+import { ensureMemoryThread } from "./thread.js";
 
 export const memory = new Memory({
   storage: new LibSQLStore({
@@ -45,3 +46,11 @@ export const agent = new MastraAgent({
     memory,
   }),
 });
+
+export async function prepareAgentMemory(): Promise<void> {
+  await ensureMemoryThread({
+    memory,
+    threadId: agent.threadId,
+    resourceId,
+  });
+}

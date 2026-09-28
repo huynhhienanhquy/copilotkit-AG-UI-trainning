@@ -11,28 +11,31 @@ A command-line chat interface demonstrating the AG-UI client with a Mastra agent
 
 ## Prerequisites
 
-- Node.js 22.13.0 or later
+- Node.js 22.22.0 or later (recommended by the current dependency tree)
 - OpenAI API key
 
 ## Setup
 
-1. Install dependencies from the repository root:
+1. Install dependencies from this practice directory:
 
-   ```bash
-   pnpm install
+   ```powershell
+   cd practices/ag-ui-cli
+   npm ci
    ```
 
 2. Set your OpenAI API key:
-   ```bash
-   export OPENAI_API_KEY=your_api_key_here
+
+   ```powershell
+   Copy-Item .env.example .env
+   # Edit .env and replace the placeholder value.
    ```
 
 ## Usage
 
 Run the CLI:
 
-```bash
-pnpm start
+```powershell
+npm start
 ```
 
 Try these example prompts:
@@ -40,7 +43,15 @@ Try these example prompts:
 - "What's the weather in San Francisco?"
 - "Browse https://example.com"
 
-Press `Ctrl+D` to quit.
+Press `Ctrl+Z` then Enter on Windows, or `Ctrl+D` on macOS/Linux, to quit.
+
+Build verification:
+
+```powershell
+npm test
+npm run typecheck
+npm run build
+```
 
 ## How It Works
 

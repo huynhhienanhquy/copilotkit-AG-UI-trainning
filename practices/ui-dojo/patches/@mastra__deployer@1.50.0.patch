@@ -1,0 +1,15 @@
+diff --git a/dist/chunk-TDHZPOCQ.js b/dist/chunk-TDHZPOCQ.js
+index b6e88b1..c15da5b 100644
+--- a/dist/chunk-TDHZPOCQ.js
++++ b/dist/chunk-TDHZPOCQ.js
+@@ -107,6 +107,10 @@ var Bundler = class {
+    * `mastra start` (or wrangler) can still resolve dependencies at runtime.
+    */
+   async generateNpmLockfile(outputDir) {
++    if (process.platform === "win32") {
++      this.logger.info("Skipping package-lock.json generation on Windows; deploy will fall back to npm install");
++      return;
++    }
+     const nodeModules = join(outputDir, "node_modules");
+     const nodeModulesTmp = join(outputDir, "node_modules.__tmp");
+     let movedNodeModules = false;

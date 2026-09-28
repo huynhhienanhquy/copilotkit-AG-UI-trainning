@@ -1,10 +1,14 @@
 {
   "name": "ag-ui-custom-agent",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Deterministic custom AG-UI agent with streamed events and state synchronization",
+  "main": "dist/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/*.test.ts"
   },
   "keywords": [],
   "author": "",

@@ -4,52 +4,28 @@ This is a starter template for building AI agents using [Mastra](https://mastra.
 
 ## Prerequisites
 
-- Node.js 18+
-- Any of the following package managers:
-  - npm (default)
-  - [pnpm](https://pnpm.io/installation)
-  - [yarn](https://classic.yarnpkg.com/lang/en/docs/install/)
-  - [bun](https://bun.sh/)
+- Node.js 22.22+ (recommended by the current dependency tree)
+- npm
 
 ## Getting Started
 
 1. Add your OpenAI API key
 
-```bash
-# you can use whatever model Mastra supports
-echo "OPENAI_API_KEY=your-key-here" >> .env
+```powershell
+Copy-Item .env.example .env
+# Edit .env and set OPENAI_API_KEY.
 ```
 
-2. Install dependencies using your preferred package manager:
+2. Install dependencies:
 
-```bash
-# Using npm (default)
-npm install
-
-# Using pnpm
-pnpm install
-
-# Using yarn
-yarn install
-
-# Using bun
-bun install
+```powershell
+npm ci
 ```
 
 3. Start the development server:
 
-```bash
-# Using npm (default)
+```powershell
 npm run dev
-
-# Using pnpm
-pnpm dev
-
-# Using yarn
-yarn dev
-
-# Using bun
-bun run dev
 ```
 
 This will start both the UI and agent servers concurrently.
@@ -87,14 +63,12 @@ Neither message proves the provider app is installed, reachable, or that
 anyone can message it — verify that separately (invite the bot, then message
 it) before treating the Channel as working.
 
-Unlike the other starters, this one has no `typecheck:channel` script: the
-host's import chain reaches `src/mastra/**`, which carries a pre-existing
-type error unrelated to the Channel host (see the comment in
-`tsconfig.channel.json`).
+Run `npm run typecheck:channel` to validate the Channel entry point and its
+agent import tree without starting a provider connection.
 
 ## Available Scripts
 
-The following scripts can also be run using your preferred package manager:
+The following scripts are available through npm:
 
 - `dev` - Starts both UI and agent servers in development mode
 - `dev:ui` - Starts only the Next.js UI server
@@ -102,6 +76,8 @@ The following scripts can also be run using your preferred package manager:
 - `dev:debug` - Starts development servers with debug logging enabled
 - `build` - Builds the application for production
 - `start` - Starts the production server
+- `typecheck` - Checks the Next.js application and shared agent code
+- `typecheck:channel` - Checks the Intelligence Channel entry point
 - `channel` - Holds an Intelligence Channel open (see "Running a Channel" above)
 
 ## Documentation

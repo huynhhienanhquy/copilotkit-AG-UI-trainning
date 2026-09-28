@@ -1,5 +1,6 @@
 export type AgentState = {
   status?: "idle" | "loading" | "success" | "error";
+  proverbs?: string[];
 
   weather?: {
     location: string;
