@@ -1,5 +1,7 @@
 "use client";
 
+// cSpell:ignore copilotkit
+
 import { useEffect, useState } from "react";
 import { z } from "zod";
 
