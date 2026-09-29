@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 
 import {
   CopilotChat,
-  CopilotThreadsDrawer,
   CopilotChatConfigurationProvider,
   useAgent,
+  useCopilotChatConfiguration,
   useConfigureSuggestions,
   useHumanInTheLoop,
   useRenderTool,
@@ -15,6 +15,7 @@ import {
 
 import "@copilotkit/react-core/v2/styles.css";
 
+import { ConversationSidebar } from "@/components/conversation-sidebar";
 import { WeatherCard } from "@/components/weather";
 import type { AgentState } from "@/lib/types";
 
@@ -33,18 +34,55 @@ const WeatherDataSchema = z.object({
 type WeatherData = z.infer<typeof WeatherDataSchema>;
 
 export default function CopilotKitPage() {
-  return (
-    <CopilotChatConfigurationProvider agentId="default">
-      <div className={styles.chatLayout}>
-        <aside className={styles.threadPanel}>
-          <CopilotThreadsDrawer />
-        </aside>
+  const [threadSelection, setThreadSelection] = useState<{
+    id?: string;
+    explicit: boolean;
+  }>({ explicit: false });
 
-        <main className={styles.chatPanel}>
-          <WeatherChat />
-        </main>
-      </div>
+  return (
+    <CopilotChatConfigurationProvider
+      agentId="default"
+      threadId={threadSelection.id}
+      hasExplicitThreadId={threadSelection.explicit}
+    >
+      <ChatWorkspace
+        onNewThread={() =>
+          setThreadSelection({
+            id: crypto.randomUUID(),
+            explicit: false,
+          })
+        }
+        onSelectThread={(id) =>
+          setThreadSelection({ id, explicit: true })
+        }
+      />
     </CopilotChatConfigurationProvider>
+  );
+}
+
+function ChatWorkspace({
+  onNewThread,
+  onSelectThread,
+}: Readonly<{
+  onNewThread: () => void;
+  onSelectThread: (threadId: string) => void;
+}>) {
+  const configuration = useCopilotChatConfiguration();
+
+  return (
+    <div className={styles.chatLayout}>
+      <aside className={styles.threadPanel}>
+        <ConversationSidebar
+          activeThreadId={configuration?.threadId}
+          onNewThread={onNewThread}
+          onSelectThread={onSelectThread}
+        />
+      </aside>
+
+      <main className={styles.chatPanel}>
+        <WeatherChat key={configuration?.threadId} />
+      </main>
+    </div>
   );
 }
 
