@@ -28,6 +28,7 @@
 - 2026-09-09 final audit: `npm run lint` passes (only pre-existing codex-agent-kit unused-handler). `npm run typecheck` passes. `npm run mastra:build` completes bundling and dependency install; package-lock generation is non-critical for local dev.
 - Provider cancellation: `copilotkit.stopAgent()` and `AbortController.abort()` fire on thread switch; `CopilotKit key={thread.id}` forces full remount. Thread switching verified.
 - All suggestions implemented: theme, sidebar, search, watchlist, upload, rename, pin/unpin, archive, unarchive, delete, show-file, extract, add-film, remove-film, explore-Ghibli.
+- 2026-10-02: upgraded conversation search to FTS5 + cached OpenAI embeddings with hybrid ranking, highlighted snippets, date/attachment/archive filters and interactive agent result cards. Full suite now passes 12 tests across 5 files; lint, typecheck, Vite bundle and Mastra build pass.
 - All A01–A20 acceptance scenarios verified with automated tests and/or browser evidence.
 - Windows test cleanup now occurs in a parent process after workers exit; this fixed LibSQL native file locks without skipping assertions or deleting shared/user data.
 

@@ -14,30 +14,38 @@ Status: **accepted**. All features implemented and verified through automated te
 - Provider cancellation: CopilotKit remounts on thread switch via `key={thread.id}`; `stopAgent()` and `AbortController.abort()` fire on unmount/switch.
 - All suggestions functional: theme, sidebar, search, watchlist, upload, rename, pin/unpin, archive, unarchive, delete, show-file, extract, add-film, remove-film, explore-Ghibli.
 
+## Semantic search improvement verified on 2026-10-02
+
+- `npm test`: 5 files, 12 tests passed. New deterministic tests cover semantic-only matches, FTS5 ranking/highlights, embedding-cache reuse, inclusive date filters, attachment presence, archive scope and derived-index cleanup.
+- `npm run typecheck` and `npm run lint`: passed.
+- Vite production bundle: passed; existing externalized-module and large-chunk warnings remain.
+- `npm run mastra:build`: backend bundle and output dependency installation passed.
+- Conversation search now generates cached title/message embeddings lazily, combines cosine similarity with FTS5, highlights lexical matches and renders `find_conversations` results as interactive cards.
+
 ## Acceptance matrix
 
-| ID | Status | Evidence |
-| --- | --- | --- |
-| A01 | ✅ | Bridge test two turns + restore; browser reload restore verified |
-| A02 | ✅ | Database reopen preserves threads/messages/watchlist/files; browser restart restores last thread |
-| A03 | ✅ | `beginRun` guard rejects concurrent runs; `CopilotKit key` forces clean remount on switch |
-| A04 | ✅ | `restoreMessages` renders historical tool results; `currentTurnMessages` excludes earlier tools |
-| A05 | ✅ | 62-message service test + 53-message HTTP pagination test |
-| A06 | ✅ | Concurrent rename/pin/archive merge; reopen preserves all metadata |
-| A07 | ✅ | Delete cleans files + messages; navigate to valid thread or new-chat screen |
-| A08 | ✅ | Real-model theme toggle; inverse state suggestions (light↔dark) |
-| A09 | ✅ | Service + HTTP persisted-text search across all pages; dialog filter by active/archived |
-| A10 | ✅ | Concurrent duplicate add returns `added` + `already_exists` |
-| A11 | ✅ | Repeated remove returns `not_found` |
-| A12 | ✅ | Resource-scoped list; cross-thread isolation; database reopen preserves watchlist |
-| A13 | ✅ | TXT/Markdown/PDF/DOCX fixtures extract correctly with page metadata |
-| A14 | ✅ | Oversized, spoofed, invalid UTF-8, malformed PDF/DOCX, OCR-required all rejected |
-| A15 | ✅ | Chunked extraction with `nextOffset` continuation; provenance preserved |
-| A16 | ✅ | Upload → bind → reload → read → extract persists through database reopen |
-| A17 | ✅ | Foreign resource file/thread reads rejected; cross-thread message overwrite blocked |
-| A18 | ✅ | Idempotent retry IDs; catalog failure returns structured error; abort/timeout covered |
-| A19 | ✅ | 15 suggestions in registry; context-aware inverse actions; upload prompt when no files |
-| A20 | ✅ | `lint` + `typecheck` + `vite:build` + `mastra:build` pass; old demos unaffected |
+| ID  | Status | Evidence                                                                                                                           |
+| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| A01 | ✅     | Bridge test two turns + restore; browser reload restore verified                                                                   |
+| A02 | ✅     | Database reopen preserves threads/messages/watchlist/files; browser restart restores last thread                                   |
+| A03 | ✅     | `beginRun` guard rejects concurrent runs; `CopilotKit key` forces clean remount on switch                                          |
+| A04 | ✅     | `restoreMessages` renders historical tool results; `currentTurnMessages` excludes earlier tools                                    |
+| A05 | ✅     | 62-message service test + 53-message HTTP pagination test                                                                          |
+| A06 | ✅     | Concurrent rename/pin/archive merge; reopen preserves all metadata                                                                 |
+| A07 | ✅     | Delete cleans files + messages; navigate to valid thread or new-chat screen                                                        |
+| A08 | ✅     | Real-model theme toggle; inverse state suggestions (light↔dark)                                                                    |
+| A09 | ✅     | Hybrid FTS5/semantic search across persisted titles/messages; highlight plus active/archive, inclusive date and attachment filters |
+| A10 | ✅     | Concurrent duplicate add returns `added` + `already_exists`                                                                        |
+| A11 | ✅     | Repeated remove returns `not_found`                                                                                                |
+| A12 | ✅     | Resource-scoped list; cross-thread isolation; database reopen preserves watchlist                                                  |
+| A13 | ✅     | TXT/Markdown/PDF/DOCX fixtures extract correctly with page metadata                                                                |
+| A14 | ✅     | Oversized, spoofed, invalid UTF-8, malformed PDF/DOCX, OCR-required all rejected                                                   |
+| A15 | ✅     | Chunked extraction with `nextOffset` continuation; provenance preserved                                                            |
+| A16 | ✅     | Upload → bind → reload → read → extract persists through database reopen                                                           |
+| A17 | ✅     | Foreign resource file/thread reads rejected; cross-thread message overwrite blocked                                                |
+| A18 | ✅     | Idempotent retry IDs; catalog failure returns structured error; abort/timeout covered                                              |
+| A19 | ✅     | 15 suggestions in registry; context-aware inverse actions; upload prompt when no files                                             |
+| A20 | ✅     | `lint` + `typecheck` + `vite:build` + `mastra:build` pass; old demos unaffected                                                    |
 
 ## Runtime decisions
 
@@ -51,4 +59,4 @@ Status: **accepted**. All features implemented and verified through automated te
 
 ## Known limits
 
-Single-user resource and one server process; local disk persistence; no OCR; no full-text index (search scans paginated persisted messages); bounded document extraction. Multi-user authentication, distributed run leases and object storage are outside the agreed practice scope.
+Single-user resource and one server process; local disk persistence; no OCR; bounded document extraction. Embeddings are stored as JSON and cosine ranking runs in-process, so a native vector index is recommended at larger scale. Multi-user authentication, distributed run leases and object storage are outside the agreed practice scope.

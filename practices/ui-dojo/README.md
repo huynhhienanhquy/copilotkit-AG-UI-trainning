@@ -14,20 +14,23 @@ Copy `.env.example` to `.env`, replace `OPENAI_API_KEY`, then run `npm run dev`.
 
 Optional server configuration:
 
-| Variable | Default / purpose |
-| --- | --- |
-| `PRACTICE_RESOURCE_ID` | `ui-dojo-practice`; server-owned single-user identity |
-| `TURSO_DATABASE_URL` | `file:./.mastra-demo.db`; used by Mastra and practice tables |
-| `TURSO_AUTH_TOKEN` | Required only for an authenticated remote database |
-| `PRACTICE_UPLOAD_DIR` | `.practice-uploads`; use an absolute persistent directory outside ephemeral deploy files |
-| `PRACTICE_EXTRACTOR_PATH` | Optional absolute path to `scripts/extract-document.mjs` |
-| `VITE_MASTRA_BASE_URL` | `http://localhost:4750`; frontend API URL |
+| Variable                   | Default / purpose                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| `PRACTICE_RESOURCE_ID`     | `ui-dojo-practice`; server-owned single-user identity                                    |
+| `TURSO_DATABASE_URL`       | `file:./.mastra-demo.db`; used by Mastra and practice tables                             |
+| `TURSO_AUTH_TOKEN`         | Required only for an authenticated remote database                                       |
+| `PRACTICE_UPLOAD_DIR`      | `.practice-uploads`; use an absolute persistent directory outside ephemeral deploy files |
+| `PRACTICE_EXTRACTOR_PATH`  | Optional absolute path to `scripts/extract-document.mjs`                                 |
+| `PRACTICE_EMBEDDING_MODEL` | `text-embedding-3-small`; model used by hybrid conversation search                       |
+| `VITE_MASTRA_BASE_URL`     | `http://localhost:4750`; frontend API URL                                                |
 
 Start commands should run from the project directory. Keep the database and upload directory together when backing up or moving the application. An absolute database URL and upload directory avoid differences between dev and deployed working directories. A standalone server distribution must include the extractor script and its `mammoth`/`pdfjs-dist` dependencies. The additive practice migration is applied lazily and does not modify existing Mastra schemas.
 
 This practice is a local, single-user demo. Before a multi-user deployment, replace its fixed resource with authenticated server identity and use persistent/shared file storage. The process-local run lock is intended for one server process.
 
 Files are limited to 10 MiB each and three per message. Extraction runs in a child process with a 20-second deadline, two concurrent jobs, a 256 MiB JS heap, a 2-million-character text limit, and 20,000-character result chunks. PDFs without readable text require OCR, which is not included. Draft uploads expire after 24 hours and are cleaned during subsequent upload activity; attached files remain until their conversation is deleted.
+
+Conversation search combines a local FTS5 index with cached OpenAI embeddings for titles and persisted text messages. Embeddings are generated lazily on the first non-empty search and refreshed when content changes. If the embedding provider is unavailable, search continues with full-text ranking. Search supports inclusive updated-date, attachment-presence, and active/archive filters; only the server sends bounded text to the configured embedding provider.
 
 Archived conversations are readable; restore them before sending another message. Pin state survives archive/restore. Deleting a conversation removes its messages and files, while the watchlist remains. A delete prompt opens a confirmation dialog and waits for the current response to finish.
 
@@ -43,7 +46,7 @@ npm run mastra:build
 npm run test:api
 ```
 
-The test wrapper removes isolated database fixtures after test workers exit, avoiding Windows native SQLite file locks. In this workspace, use `npm run` for scripts: the globally installed pnpm 11 does not honor this repository's pnpm 10 patches. See the [Vietnamese implementation guide](docs/ghibli-practice-implementation.vi.md), [implementation plan](IMPLEMENTATION_PLAN.md), [progress](docs/practice-progress.md), and [acceptance evidence](docs/practice-acceptance.md).
+The test wrapper removes isolated database fixtures after test workers exit, avoiding Windows native SQLite file locks. In this workspace, use `npm run` for scripts: the globally installed pnpm 11 does not honor this repository's pnpm 10 patches. See the [improvement documentation](docs/improvements/README.md), [Vietnamese implementation guide](docs/ghibli-practice-implementation.vi.md), [implementation plan](IMPLEMENTATION_PLAN.md), [progress](docs/practice-progress.md), and [acceptance evidence](docs/practice-acceptance.md).
 
 A Mastra showcase demonstrating how to integrate Mastra with popular AI UI frameworks. Compare implementations side-by-side and choose the best approach for your project.
 

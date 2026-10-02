@@ -11,7 +11,7 @@ Phần practice mở rộng boilerplate [`mastra-ai/ui-dojo`](https://github.com
 
 Workspace sử dụng React, CopilotKit v2, AG-UI, Mastra và LibSQL. Người dùng có thể điều khiển giao diện bằng hội thoại, quản lý conversation, làm việc với file đính kèm, quản lý Ghibli watchlist và tiếp tục conversation sau khi tải lại trang.
 
-Tài liệu này mô tả code đã triển khai cho các yêu cầu của practice. Kết quả test chi tiết nằm trong [practice-acceptance.md](practice-acceptance.md).
+Tài liệu này mô tả code đã triển khai cho các yêu cầu của practice. Kết quả test chi tiết nằm trong [practice-acceptance.md](practice-acceptance.md); các thay đổi bổ sung sau implementation ban đầu được ghi tại [improvements/](improvements/README.md).
 
 ## 2. Các yêu cầu đã hoàn thành
 
@@ -19,7 +19,7 @@ Tài liệu này mô tả code đã triển khai cho các yêu cầu của pract
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Toggle theme tool                | Frontend tool `set_theme` nhận `light`, `dark`, `system` hoặc `toggle`                                           | `src/components/practice/practice-tools.tsx`                                                                                |
 | Collapse/expand sidebar tool     | Frontend tool `set_conversation_sidebar`; trạng thái desktop được lưu trong `localStorage`                       | `src/components/practice/practice-tools.tsx`, `src/pages/practice/ghibli.tsx`                                               |
-| Search popup tool                | Frontend tool `open_conversation_search`, phím tắt `Ctrl/Cmd + K`, tìm theo title và toàn bộ message đã lưu      | `src/components/practice/conversation-search.tsx`, `src/mastra/services/conversations.ts`                                   |
+| Search popup tool                | Frontend tool `open_conversation_search`, phím tắt `Ctrl/Cmd + K`, hybrid FTS5 + semantic search và bộ lọc       | `src/components/practice/conversation-search.tsx`, `src/mastra/services/conversation-search.ts`                             |
 | Show and extract attached file   | Upload/preview/download ở UI; tool `show_attachment` mở file và server tool `extract_attachment` trích xuất text | `src/components/practice/attachment-preview.tsx`, `src/mastra/services/attachments.ts`, `src/mastra/services/extraction.ts` |
 | Delete conversation              | Tool chỉ mở hộp thoại xác nhận; API xóa thread, message và file sau khi người dùng xác nhận                      | `src/components/practice/practice-tools.tsx`, `src/pages/practice/ghibli.tsx`, `src/mastra/routes/practice.ts`              |
 | Archive/unarchive                | Server tool `update_conversation` và menu conversation cùng dùng một service cập nhật metadata                   | `src/mastra/tools/practice-tools.ts`, `src/mastra/services/conversations.ts`                                                |
@@ -124,15 +124,19 @@ useFrontendTool({
 
 ### 4.3 Search popup
 
-`ConversationSearch` debounce input 250 ms, hỗ trợ ba scope `active`, `archived`, `all` và phân trang kết quả. Search không chỉ lọc những item đã tải ở client; `ConversationService.list()` quét các thread và message đã lưu ở server.
+`ConversationSearch` debounce input 250 ms và tìm trên toàn bộ title/message đã lưu ở server. Popup hỗ trợ:
 
-Thứ tự kết quả:
+- ba scope `active`, `archived`, `all`;
+- khoảng ngày cập nhật `updatedFrom`–`updatedTo` (inclusive);
+- conversation có hoặc không có attachment;
+- phân trang 30 kết quả;
+- highlight các đoạn message khớp từ khóa;
+- badge pinned, archived, attachment count và nguồn match;
+- trạng thái ranking `hybrid`, `lexical` hoặc `browse`.
 
-1. pinned conversation trước;
-2. `updatedAt` mới nhất trước;
-3. `id` làm tie-breaker ổn định.
+`ConversationSearchService` rebuild các row FTS5 từ canonical Mastra Memory trước khi tìm. Với query khác rỗng, service đồng thời tạo embedding cho title và các message text chưa có cache hoặc đã thay đổi. Hybrid score ưu tiên FTS lexical match và bổ sung cosine similarity để tìm được nội dung liên quan dù không trùng từ khóa.
 
-Khi match trong message, API trả thêm một đoạn `snippet` quanh từ khóa.
+Embedding được tạo lazy theo batch, dùng `text-embedding-3-small` mặc định và chỉ chạy phía server. Mỗi document gửi sang provider được giới hạn 12.000 ký tự. Vector được cache theo SHA-256 của nội dung; đổi title/message sẽ tạo lại vector. Nếu provider hoặc API key không khả dụng, request không thất bại mà tiếp tục bằng full-text ranking.
 
 ## 5. Quản lý conversation
 
@@ -189,16 +193,16 @@ Archived conversation vẫn đọc được nhưng không nhận message, file h
 
 `src/mastra/agents/ghibli-agent.ts` cấu hình model `openai/gpt-5-mini`, Mastra Memory và các tools:
 
-| Tool                    | Vai trò                                         |
-| ----------------------- | ----------------------------------------------- |
-| `ghibli-films`          | Lấy danh sách/thông tin phim từ Ghibli API      |
-| `ghibli-characters`     | Lấy thông tin nhân vật                          |
-| `list_watchlist`        | Đọc watchlist hiện tại                          |
-| `add_watchlist_film`    | Thêm phim bằng UUID có thật trong catalog       |
-| `remove_watchlist_film` | Xóa phim khỏi watchlist                         |
-| `find_conversations`    | Tìm conversation theo title hoặc persisted text |
-| `update_conversation`   | Rename, archive/unarchive, pin/unpin            |
-| `extract_attachment`    | Trích xuất text của attachment theo từng chunk  |
+| Tool                    | Vai trò                                                                                                          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `ghibli-films`          | Lấy danh sách/thông tin phim từ Ghibli API                                                                       |
+| `ghibli-characters`     | Lấy thông tin nhân vật                                                                                           |
+| `list_watchlist`        | Đọc watchlist hiện tại                                                                                           |
+| `add_watchlist_film`    | Thêm phim bằng UUID có thật trong catalog                                                                        |
+| `remove_watchlist_film` | Xóa phim khỏi watchlist                                                                                          |
+| `find_conversations`    | Hybrid semantic/full-text search với date, attachment và archive filters; kết quả render thành interactive cards |
+| `update_conversation`   | Rename, archive/unarchive, pin/unpin                                                                             |
+| `extract_attachment`    | Trích xuất text của attachment theo từng chunk                                                                   |
 
 Agent instruction yêu cầu không tự tạo film ID, file ID hoặc tool result; chỉ báo thành công sau khi tool thực sự thành công. Các UI-only request không gọi nhầm movie tools.
 
@@ -380,6 +384,27 @@ CREATE TABLE IF NOT EXISTS practice_attachments (
   created_at TEXT NOT NULL,
   extraction_json TEXT
 );
+
+CREATE TABLE IF NOT EXISTS practice_search_embeddings (
+  resource_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  model TEXT NOT NULL,
+  embedding_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(resource_id, source_type, source_id)
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS practice_search_fts USING fts5(
+  resource_id UNINDEXED,
+  thread_id UNINDEXED,
+  source_type UNINDEXED,
+  source_id UNINDEXED,
+  content,
+  tokenize='unicode61 remove_diacritics 2'
+);
 ```
 
 `PRACTICE_RESOURCE_ID` là identity do server sở hữu, mặc định `ui-dojo-practice`. Client và model không được tự chọn resource này. Đây là thiết kế single-user cho practice; multi-user production cần thay bằng authenticated identity.
@@ -388,26 +413,26 @@ CREATE TABLE IF NOT EXISTS practice_attachments (
 
 Base URL mặc định: `http://localhost:4750/practice`.
 
-| Method   | Endpoint                           | Chức năng                             |
-| -------- | ---------------------------------- | ------------------------------------- |
-| `GET`    | `/threads?query=&scope=&page=`     | List/search conversations             |
-| `POST`   | `/threads`                         | Tạo conversation                      |
-| `GET`    | `/threads/:id`                     | Đọc conversation                      |
-| `PATCH`  | `/threads/:id`                     | Rename/archive/pin bằng partial patch |
-| `DELETE` | `/threads/:id`                     | Xóa conversation, message và file     |
-| `GET`    | `/threads/:id/messages?page=`      | Đọc persisted messages                |
-| `POST`   | `/threads/:id/messages`            | Lưu user message và bind attachments  |
-| `GET`    | `/films`                           | Đọc catalog đã validate               |
-| `GET`    | `/watchlist`                       | Đọc watchlist                         |
-| `PUT`    | `/watchlist/:filmId`               | Thêm film                             |
-| `DELETE` | `/watchlist/:filmId`               | Xóa film                              |
-| `GET`    | `/threads/:id/attachments`         | List attachment của thread            |
-| `POST`   | `/threads/:id/attachments`         | Upload attachment                     |
-| `POST`   | `/threads/:id/attachments/bind`    | Bind draft file với message           |
-| `GET`    | `/attachments/:id`                 | Download/preview file gốc             |
-| `DELETE` | `/attachments/:id`                 | Xóa draft attachment                  |
-| `GET`    | `/attachments/:id/extract?offset=` | Extract một chunk text                |
-| `POST`   | `/copilotkit`                      | CopilotKit single-route runtime       |
+| Method   | Endpoint                                                               | Chức năng                             |
+| -------- | ---------------------------------------------------------------------- | ------------------------------------- |
+| `GET`    | `/threads?query=&scope=&updatedFrom=&updatedTo=&hasAttachments=&page=` | Hybrid search/filter conversations    |
+| `POST`   | `/threads`                                                             | Tạo conversation                      |
+| `GET`    | `/threads/:id`                                                         | Đọc conversation                      |
+| `PATCH`  | `/threads/:id`                                                         | Rename/archive/pin bằng partial patch |
+| `DELETE` | `/threads/:id`                                                         | Xóa conversation, message và file     |
+| `GET`    | `/threads/:id/messages?page=`                                          | Đọc persisted messages                |
+| `POST`   | `/threads/:id/messages`                                                | Lưu user message và bind attachments  |
+| `GET`    | `/films`                                                               | Đọc catalog đã validate               |
+| `GET`    | `/watchlist`                                                           | Đọc watchlist                         |
+| `PUT`    | `/watchlist/:filmId`                                                   | Thêm film                             |
+| `DELETE` | `/watchlist/:filmId`                                                   | Xóa film                              |
+| `GET`    | `/threads/:id/attachments`                                             | List attachment của thread            |
+| `POST`   | `/threads/:id/attachments`                                             | Upload attachment                     |
+| `POST`   | `/threads/:id/attachments/bind`                                        | Bind draft file với message           |
+| `GET`    | `/attachments/:id`                                                     | Download/preview file gốc             |
+| `DELETE` | `/attachments/:id`                                                     | Xóa draft attachment                  |
+| `GET`    | `/attachments/:id/extract?offset=`                                     | Extract một chunk text                |
+| `POST`   | `/copilotkit`                                                          | CopilotKit single-route runtime       |
 
 `practiceBoundary()` chuẩn hóa lỗi validation/domain thành response an toàn. Lỗi nội bộ chỉ trả generic message và `requestId`; chi tiết lỗi không bị lộ cho client.
 
@@ -421,6 +446,7 @@ src/
 │  ├─ practice-tools.tsx                     # CopilotKit frontend/render tools
 │  ├─ conversation-sidebar.tsx               # CRUD controls
 │  ├─ conversation-search.tsx                # persisted search dialog
+│  ├─ conversation-search-card.tsx           # highlighted cards dùng cho dialog và agent tool
 │  ├─ attachment-preview.tsx                 # preview/download/extraction chunks
 │  └─ watchlist-panel.tsx                    # catalog và watchlist UI
 ├─ lib/practice/
@@ -435,7 +461,8 @@ src/
    ├─ routes/practice.ts                     # REST + CopilotKit runtime routes
    ├─ repositories/practice-database.ts      # additive schema migration
    └─ services/
-      ├─ conversations.ts                    # ownership, CRUD, search, run lease
+      ├─ conversations.ts                    # ownership, CRUD, persisted history, run lease
+      ├─ conversation-search.ts              # FTS5, embedding cache, hybrid rank và filters
       ├─ practice-memory.ts                  # Mastra Memory configuration
       ├─ practice-messages.ts                # Mastra → AG-UI restoration
       ├─ watchlist.ts                        # validated Ghibli catalog + persistence
@@ -459,14 +486,15 @@ npm run dev
 
 Các biến tùy chọn:
 
-| Biến                      | Mặc định / mục đích                                  |
-| ------------------------- | ---------------------------------------------------- |
-| `PRACTICE_RESOURCE_ID`    | `ui-dojo-practice`                                   |
-| `TURSO_DATABASE_URL`      | `file:./.mastra-demo.db`                             |
-| `TURSO_AUTH_TOKEN`        | Token nếu dùng remote database                       |
-| `PRACTICE_UPLOAD_DIR`     | `.practice-uploads`                                  |
-| `PRACTICE_EXTRACTOR_PATH` | Đường dẫn tuyệt đối đến extractor khi đóng gói riêng |
-| `VITE_MASTRA_BASE_URL`    | `http://localhost:4750`                              |
+| Biến                       | Mặc định / mục đích                                  |
+| -------------------------- | ---------------------------------------------------- |
+| `PRACTICE_RESOURCE_ID`     | `ui-dojo-practice`                                   |
+| `TURSO_DATABASE_URL`       | `file:./.mastra-demo.db`                             |
+| `TURSO_AUTH_TOKEN`         | Token nếu dùng remote database                       |
+| `PRACTICE_UPLOAD_DIR`      | `.practice-uploads`                                  |
+| `PRACTICE_EXTRACTOR_PATH`  | Đường dẫn tuyệt đối đến extractor khi đóng gói riêng |
+| `PRACTICE_EMBEDDING_MODEL` | `text-embedding-3-small`; model cho semantic search  |
+| `VITE_MASTRA_BASE_URL`     | `http://localhost:4750`                              |
 
 ## 14. Kiểm tra chất lượng
 
@@ -481,13 +509,13 @@ npm run mastra:build
 npm run test:api
 ```
 
-Test suite bao phủ conversation CRUD, concurrent metadata merge, message restore, watchlist idempotency, file validation, TXT/Markdown/PDF/DOCX extraction, pagination, ownership isolation và cleanup khi xóa.
+Test suite bao phủ conversation CRUD, concurrent metadata merge, message restore, watchlist idempotency, file validation, TXT/Markdown/PDF/DOCX extraction, semantic-only match, FTS highlighting, embedding cache, search filters, pagination, ownership isolation và cleanup khi xóa.
 
 ## 15. Giới hạn hiện tại
 
 - Practice dùng một server-owned resource cho demo single-user, chưa có authentication multi-user.
 - Run lease nằm trong process, chưa phải distributed lock cho nhiều server instance.
 - File dùng local disk; production nhiều instance cần shared/object storage.
-- Search quét persisted messages theo page, chưa dùng full-text index.
+- Embedding cache đang lưu vector JSON và cosine ranking chạy trong process; quy mô rất lớn nên chuyển sang native vector index/database.
 - PDF scan cần OCR, nhưng OCR không nằm trong phạm vi practice.
 - Khi backup hoặc di chuyển hệ thống, phải giữ database và upload directory cùng nhau.
