@@ -31,4 +31,3 @@ src/mastra/public/*.db*
 .mastra-demo.db-*
 .practice-uploads/
 .practice-test/
-codex-agent-kit/

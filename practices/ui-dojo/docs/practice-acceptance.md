@@ -6,7 +6,7 @@ Status: **accepted**. All features implemented and verified through automated te
 
 - `npm test`: 4 files, 10 tests passed. Includes a real Mastra/AG-UI bridge with deterministic provider streaming, frontend result continuation, pre-saved second user message, distinct assistant turns, stable IDs and no duplicate tool calls.
 - `npm run typecheck`: passed.
-- `npm run lint`: passes (only pre-existing unused `handler` in `codex-agent-kit/examples/good-error-handler.ts:91`; kit examples unchanged).
+- `npm run lint`: passed.
 - `npm run vite:build`: frontend production build passed.
 - `npm run mastra:build`: backend bundling and dependency install completed successfully.
 - `node --import tsx scripts/practice-api-smoke.ts`: passed against the local Mastra server. Exercises actual HTTP routes, concurrent metadata merge, four real file parsers, message/attachment persistence, retry ID handling, cross-thread rejection, 53-message pagination, search beyond the loaded page, deletion/file cleanup and independent watchlist.
