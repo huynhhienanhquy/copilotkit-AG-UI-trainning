@@ -43,7 +43,7 @@ npm run mastra:build
 npm run test:api
 ```
 
-The test wrapper removes isolated database fixtures after test workers exit, avoiding Windows native SQLite file locks. In this workspace, use `npm run` for scripts: the globally installed pnpm 11 does not honor this repository's pnpm 10 patches. See [implementation plan](IMPLEMENTATION_PLAN.md), [progress](docs/practice-progress.md), and [acceptance evidence](docs/practice-acceptance.md).
+The test wrapper removes isolated database fixtures after test workers exit, avoiding Windows native SQLite file locks. In this workspace, use `npm run` for scripts: the globally installed pnpm 11 does not honor this repository's pnpm 10 patches. See the [Vietnamese implementation guide](docs/ghibli-practice-implementation.vi.md), [implementation plan](IMPLEMENTATION_PLAN.md), [progress](docs/practice-progress.md), and [acceptance evidence](docs/practice-acceptance.md).
 
 A Mastra showcase demonstrating how to integrate Mastra with popular AI UI frameworks. Compare implementations side-by-side and choose the best approach for your project.
 

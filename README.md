@@ -17,12 +17,10 @@ cd practices/ag-ui-cli
 npm ci
 npm start
 
-# Custom agent — không cần API key
 cd practices/ag-ui-custom-agent
 pnpm install
 pnpm dev
 
-# Server + React UI — tự chạy demo mode nếu không có API key
 cd practices/ag-ui-server
 pnpm install
 pnpm dev
@@ -32,7 +30,6 @@ pnpm dev
 cd practices/interactive-agent
 npm ci
 Copy-Item .env.example .env
-# Điền OPENAI_API_KEY
 npm run dev
 # Mở http://localhost:3000
 
@@ -40,7 +37,6 @@ npm run dev
 cd practices/middleware-based
 pnpm install
 Copy-Item .env.example .env
-# Điền OPENAI_API_KEY
 pnpm dev
 
 
@@ -48,6 +44,5 @@ pnpm dev
 cd practices/todo
 npm ci
 Copy-Item .env.example .env.local
-# Điền OPENAI_API_KEY
 npm run dev
 # Mở http://localhost:3000

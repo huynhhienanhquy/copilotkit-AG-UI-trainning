@@ -164,7 +164,7 @@ export function TodoCopilot() {
     setBusy(true);
     setError("");
     let timedOut = false;
-    const timeout = setTimeout(() => { timedOut = true; stopRef.current(); }, 60000);
+    const timeout = setTimeout(() => { timedOut = true; stopRef.current(); }, 6000);
     const previousIds = new Set(chat.visibleMessages.map((message) => message.id));
     try {
       await operation();
