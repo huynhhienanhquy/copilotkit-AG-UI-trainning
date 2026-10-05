@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import {
   useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+} from "@tanstack/react-query";
+import type {
+  InfiniteData,
+  QueryClient,
+  QueryKey,
 } from "@tanstack/react-query";
 import { CopilotKit } from "@copilotkit/react-core";
 import "@copilotkit/react-core/v2/styles.css";
@@ -28,6 +33,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { practiceApi, practiceUrl } from "@/lib/practice/api";
 import type {
   Attachment,
+  AttachmentPreviewTarget,
   Conversation,
   Page,
   ThreadPatch,
@@ -37,6 +43,56 @@ import { ConversationSearch } from "@/components/practice/conversation-search";
 import { WatchlistPanel } from "@/components/practice/watchlist-panel";
 import { AttachmentPreview } from "@/components/practice/attachment-preview";
 import { GhibliChat } from "@/components/practice/ghibli-chat";
+import {
+  UndoToastViewport,
+  useUndoToast,
+} from "@/components/practice/undo-toast";
+import {
+  optimisticConversation,
+  updateConversationPages,
+} from "@/lib/practice/optimistic-updates";
+
+type ConversationMutationVariables = {
+  id: string;
+  patch: ThreadPatch;
+  announce?: boolean;
+};
+
+type ConversationMutationContext = {
+  snapshot: [QueryKey, unknown][];
+};
+
+function findCachedConversation(client: QueryClient, id: string) {
+  const detail = client.getQueryData<Conversation>(["practice", "thread", id]);
+  if (detail) return detail;
+  for (const [, data] of client.getQueriesData<
+    InfiniteData<Page<Conversation>>
+  >({ queryKey: ["practice", "threads"] })) {
+    const conversation = data?.pages
+      .flatMap((page) => page.items)
+      .find((item) => item.id === id);
+    if (conversation) return conversation;
+  }
+}
+
+function writeConversationCaches(
+  client: QueryClient,
+  conversation: Conversation,
+) {
+  const detailKey = ["practice", "thread", conversation.id] as const;
+  if (client.getQueryState(detailKey)) {
+    client.setQueryData(detailKey, conversation);
+  }
+  for (const [key] of client.getQueriesData({
+    queryKey: ["practice", "threads"],
+  })) {
+    const scope = key[2];
+    if (scope !== "active" && scope !== "archived") continue;
+    client.setQueryData<InfiniteData<Page<Conversation>>>(key, (data) =>
+      updateConversationPages(data, conversation, scope),
+    );
+  }
+}
 
 /** Compose the practice page with independent responsive conversation navigation and durable data. */
 export function GhibliPracticePage() {
@@ -54,10 +110,17 @@ export function GhibliPracticePage() {
     includeArchived: boolean;
   } | null>(null);
   const [watchlistOpen, setWatchlistOpen] = useState(false);
-  const [file, setFile] = useState<Attachment | null>(null);
+  const [preview, setPreview] = useState<{
+    file: Attachment;
+    target?: AttachmentPreviewTarget;
+  } | null>(null);
   const [deleting, setDeleting] = useState<Conversation | null>(null);
   const [chatBusy, setChatBusy] = useState(false);
   const [error, setError] = useState("");
+  const undoToast = useUndoToast();
+  const runConversationMutation = useRef<
+    ((variables: ConversationMutationVariables) => Promise<Conversation>) | null
+  >(null);
   const threads = useInfiniteQuery({
     queryKey: ["practice", "threads", scope],
     initialPageParam: 0,
@@ -75,15 +138,92 @@ export function GhibliPracticePage() {
       practiceApi<Conversation>(`/threads/${threadId}`, { signal }),
     retry: false,
   });
-  const mutation = useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: ThreadPatch }) =>
+  const mutation = useMutation<
+    Conversation,
+    Error,
+    ConversationMutationVariables,
+    ConversationMutationContext
+  >({
+    mutationFn: ({ id, patch }) =>
       practiceApi<Conversation>(`/threads/${id}`, {
         method: "PATCH",
         body: JSON.stringify(patch),
       }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["practice"] }),
-    onError: (failure) => setError(failure.message),
+    onMutate: async ({ id, patch }) => {
+      setError("");
+      await Promise.all([
+        client.cancelQueries({ queryKey: ["practice", "threads"] }),
+        client.cancelQueries({ queryKey: ["practice", "thread", id] }),
+      ]);
+      const snapshot: [QueryKey, unknown][] = [
+        ...client.getQueriesData({ queryKey: ["practice", "threads"] }),
+        ...client.getQueriesData({
+          queryKey: ["practice", "thread", id],
+          exact: true,
+        }),
+      ];
+      const previous = findCachedConversation(client, id);
+      if (previous) {
+        writeConversationCaches(
+          client,
+          optimisticConversation(previous, patch, new Date().toISOString()),
+        );
+      }
+      return { snapshot };
+    },
+    onSuccess: (saved, { id, patch, announce = true }) => {
+      writeConversationCaches(client, saved);
+      if (!announce) return;
+      if (patch.archived !== undefined) {
+        undoToast.showUndo({
+          message: patch.archived
+            ? "Conversation archived"
+            : "Conversation restored",
+          onUndo: async () => {
+            if (!runConversationMutation.current) return;
+            await runConversationMutation.current({
+              id,
+              patch: { archived: !patch.archived },
+              announce: false,
+            });
+          },
+        });
+      } else if (patch.pinned !== undefined) {
+        undoToast.showUndo({
+          message: patch.pinned
+            ? "Conversation pinned"
+            : "Conversation unpinned",
+          onUndo: async () => {
+            if (!runConversationMutation.current) return;
+            await runConversationMutation.current({
+              id,
+              patch: { pinned: !patch.pinned },
+              announce: false,
+            });
+          },
+        });
+      }
+    },
+    onError: (failure, _variables, context) => {
+      for (const [key, data] of context?.snapshot ?? []) {
+        client.setQueryData(key, data);
+      }
+      setError(failure.message);
+    },
+    onSettled: async (_data, _failure, { id }) => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["practice", "threads"] }),
+        client.invalidateQueries({ queryKey: ["practice", "search"] }),
+        client.invalidateQueries({ queryKey: ["practice", "thread", id] }),
+      ]);
+    },
   });
+  useEffect(() => {
+    runConversationMutation.current = mutation.mutateAsync;
+    return () => {
+      runConversationMutation.current = null;
+    };
+  }, [mutation.mutateAsync]);
   const create = useMutation({
     mutationFn: () => practiceApi<Conversation>("/threads", { method: "POST" }),
     onSuccess: async (created) => {
@@ -305,7 +445,7 @@ export function GhibliPracticePage() {
                 expanded={mobile ? mobileOpen : expanded}
                 onExpand={setSidebar}
                 onSearch={openSearch}
-                onShowFile={setFile}
+                onShowFile={(file, target) => setPreview({ file, target })}
                 onSelectConversation={select}
                 onWatchlist={() => setWatchlistOpen(true)}
                 onDelete={() => setDeleting(thread.data)}
@@ -323,13 +463,17 @@ export function GhibliPracticePage() {
         />
       )}
       {watchlistOpen && (
-        <WatchlistPanel onClose={() => setWatchlistOpen(false)} />
+        <WatchlistPanel
+          onClose={() => setWatchlistOpen(false)}
+          showUndo={undoToast.showUndo}
+        />
       )}
-      {file && (
+      {preview && (
         <AttachmentPreview
-          key={file.id}
-          file={file}
-          onClose={() => setFile(null)}
+          key={`${preview.file.id}-${preview.target?.start ?? "file"}`}
+          file={preview.file}
+          target={preview.target}
+          onClose={() => setPreview(null)}
         />
       )}
       <Dialog
@@ -370,6 +514,11 @@ export function GhibliPracticePage() {
           </div>
         </DialogContent>
       </Dialog>
+      <UndoToastViewport
+        key={undoToast.toast?.id ?? "empty"}
+        toast={undoToast.toast}
+        onDismiss={undoToast.dismiss}
+      />
     </section>
   );
 }

@@ -14,20 +14,31 @@ let text = "";
 const pages = [];
 if (kind === "pdf") {
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const document = await getDocument({ data: new Uint8Array(buffer), isEvalSupported: false,
-    useSystemFonts: false, useWorkerFetch: false, verbosity: 0 }).promise;
+  const document = await getDocument({
+    data: new Uint8Array(buffer),
+    isEvalSupported: false,
+    useSystemFonts: false,
+    useWorkerFetch: false,
+    verbosity: 0,
+  }).promise;
   if (document.numPages > 500) throw new Error("too_many_pages");
   try {
     for (let index = 1; index <= document.numPages; index++) {
       const page = await document.getPage(index);
       const content = await page.getTextContent();
       const start = text.length;
-      text += content.items.filter((item) => "str" in item).map((item) => item.str + (item.hasEOL ? "\n" : " ")).join("") + "\n";
+      text +=
+        content.items
+          .filter((item) => "str" in item)
+          .map((item) => item.str + (item.hasEOL ? "\n" : " "))
+          .join("") + "\n";
       pages.push({ page: index, start, end: text.length });
       if (text.length > 2_000_000) throw new Error("too_much_text");
       page.cleanup();
     }
-  } finally { await document.destroy(); }
+  } finally {
+    await document.destroy();
+  }
 } else if (kind === "docx") {
   // Inspect central-directory sizes before a DOCX parser allocates decompressed content.
   let uncompressed = 0;
@@ -36,8 +47,13 @@ if (kind === "pdf") {
     if (buffer.readUInt32LE(index) !== 0x02014b50) continue;
     uncompressed += buffer.readUInt32LE(index + 24);
     entries++;
-    if (uncompressed > 30 * 1024 * 1024 || entries > 2000) throw new Error("archive_too_large");
-    index += 45 + buffer.readUInt16LE(index + 28) + buffer.readUInt16LE(index + 30) + buffer.readUInt16LE(index + 32);
+    if (uncompressed > 30 * 1024 * 1024 || entries > 2000)
+      throw new Error("archive_too_large");
+    index +=
+      45 +
+      buffer.readUInt16LE(index + 28) +
+      buffer.readUInt16LE(index + 30) +
+      buffer.readUInt16LE(index + 32);
   }
   if (!entries) throw new Error("invalid_docx");
   text = (await extractRawText({ buffer })).value;
@@ -45,6 +61,10 @@ if (kind === "pdf") {
   text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
   if (text.includes("\u0000")) throw new Error("invalid_text");
 }
-if (!text.trim()) throw new Error(kind === "pdf" ? "no_text_requires_ocr" : "empty_document");
+if (!text.trim())
+  throw new Error(kind === "pdf" ? "no_text_requires_ocr" : "empty_document");
 if (text.length > 2_000_000) throw new Error("too_much_text");
+// Formats without reliable pagination use one explicit virtual page so every
+// extracted passage still has stable page and character provenance.
+if (!pages.length) pages.push({ page: 1, start: 0, end: text.length });
 process.stdout.write(JSON.stringify({ text, pages }));

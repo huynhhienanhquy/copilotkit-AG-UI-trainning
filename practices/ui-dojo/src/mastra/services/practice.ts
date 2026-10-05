@@ -4,11 +4,14 @@ import { getPracticeDatabase } from "../repositories/practice-database";
 import { WatchlistService } from "./watchlist";
 import { AttachmentService } from "./attachments";
 import { ConversationSearchService } from "./conversation-search";
+import { ConversationTitleService } from "./conversation-title";
 
 export const conversations = new ConversationService(
   practiceMemory,
   PRACTICE_RESOURCE_ID,
 );
+
+export const conversationTitles = new ConversationTitleService(conversations);
 
 /** Get the shared persisted watchlist service after additive schema initialization. */
 export async function getWatchlist() {

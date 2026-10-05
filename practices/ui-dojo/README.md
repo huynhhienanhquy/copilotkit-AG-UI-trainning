@@ -2,7 +2,7 @@
 
 ## Ghibli Practice
 
-Open `/practice/ghibli` for the extended practice workspace. It supports saved conversations, theme/sidebar/search tools, conversation rename/pin/archive/delete, a shared Ghibli watchlist, and durable TXT/Markdown/PDF/DOCX attachments with text extraction. **All features** shows executable examples; file-specific examples appear after uploading a document.
+Open `/practice/ghibli` for the extended practice workspace. It supports saved conversations with automatic first-message titles, theme/sidebar/search tools, optimistic pin/archive with Undo, an optimistic shared Ghibli watchlist, and durable TXT/Markdown/PDF/DOCX attachments with page-aware clickable citations. **All features** shows executable examples; file-specific examples appear after uploading a document.
 
 Use Node 22 and the declared pnpm version to install:
 
@@ -21,7 +21,9 @@ Optional server configuration:
 | `TURSO_AUTH_TOKEN`         | Required only for an authenticated remote database                                       |
 | `PRACTICE_UPLOAD_DIR`      | `.practice-uploads`; use an absolute persistent directory outside ephemeral deploy files |
 | `PRACTICE_EXTRACTOR_PATH`  | Optional absolute path to `scripts/extract-document.mjs`                                 |
+| `OPENAI_BASE_URL`          | `https://api.openai.com/v1`; custom endpoint must support Responses and Embeddings APIs  |
 | `PRACTICE_EMBEDDING_MODEL` | `text-embedding-3-small`; model used by hybrid conversation search                       |
+| `PRACTICE_TITLE_MODEL`     | `gpt-5-mini`; small model used to title a conversation after its first message           |
 | `VITE_MASTRA_BASE_URL`     | `http://localhost:4750`; frontend API URL                                                |
 
 Start commands should run from the project directory. Keep the database and upload directory together when backing up or moving the application. An absolute database URL and upload directory avoid differences between dev and deployed working directories. A standalone server distribution must include the extractor script and its `mammoth`/`pdfjs-dist` dependencies. The additive practice migration is applied lazily and does not modify existing Mastra schemas.

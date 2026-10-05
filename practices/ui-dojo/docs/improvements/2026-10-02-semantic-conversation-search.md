@@ -93,6 +93,7 @@ Quy tắc tạo embedding:
 
 - embeddings chỉ được tạo khi query khác rỗng;
 - title và mỗi message text là một search document riêng;
+- mỗi document được chia thêm thành các passage có exact character range để định vị semantic match;
 - mỗi document gửi tới provider được giới hạn 12.000 ký tự;
 - requests được batch tối đa 64 inputs;
 - timeout là 20 giây;
@@ -115,7 +116,7 @@ CREATE TABLE IF NOT EXISTS practice_search_embeddings (
 );
 ```
 
-`content_hash` là SHA-256 của canonical text. Khi title hoặc message thay đổi, hash không còn khớp và vector được tạo lại. Khi model thay đổi, cache của model cũ không được sử dụng.
+`content_hash` là SHA-256 của canonical text. `embedding_json` lưu versioned payload gồm document vector và các passage vector kèm `start`/`end`. Khi title hoặc message thay đổi, hash không còn khớp và toàn bộ payload được tạo lại. Cache cũ chỉ có document vector cũng được tự động nâng cấp lazy trong lần search kế tiếp. Khi model thay đổi, cache của model cũ không được sử dụng.
 
 Nếu provider thất bại, semantic search được cooldown 30 giây để tránh gọi lại liên tục khi người dùng đang gõ. Trong thời gian đó search dùng lexical mode.
 
@@ -137,7 +138,7 @@ Các trọng số và threshold nằm tập trung trong `ConversationSearchServi
 
 ## 8. Highlight và UI cards
 
-Với lexical match, server trả plain-text snippet và các character ranges. Client render ranges bằng React `<mark>`; không dùng `dangerouslySetInnerHTML`, vì vậy persisted message không thể inject HTML.
+Với lexical match, server trả plain-text snippet và exact token/phrase ranges. Với semantic-only match, passage có cosine similarity cao nhất cung cấp character range để server đặt snippet quanh đúng phần liên quan và highlight passage đó. Client render ranges bằng React `<mark>`; không dùng `dangerouslySetInnerHTML`, vì vậy persisted message không thể inject HTML.
 
 `ConversationSearchCard` được dùng ở hai nơi:
 
@@ -195,7 +196,7 @@ CopilotKit renderer nhận tool result, validate cấu trúc cơ bản và rende
 
 Automated tests dùng deterministic embedding provider, không phụ thuộc network hoặc API key. Test cases bao phủ:
 
-- semantic-only match không có lexical overlap;
+- semantic-only match không có lexical overlap, nằm sau phần đầu message và vẫn trả đúng highlighted passage;
 - FTS match và highlight ranges;
 - reuse cached document embeddings;
 - inclusive date range;
@@ -210,6 +211,17 @@ npm test             5 files, 12 tests passed
 npm run typecheck    passed
 npm run lint         passed
 Vite build           passed
+npm run mastra:build passed
+git diff --check     passed
+```
+
+Reverification ngày 2026-10-05 sau khi bổ sung semantic passage highlighting:
+
+```text
+npm test             7 files, 23 tests passed
+npm run typecheck    passed
+scoped ESLint        passed
+Prettier check       passed
 npm run mastra:build passed
 git diff --check     passed
 ```

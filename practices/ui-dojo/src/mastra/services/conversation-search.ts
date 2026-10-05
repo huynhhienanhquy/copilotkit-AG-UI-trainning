@@ -21,6 +21,20 @@ type RankedDocument = SearchDocument & {
   lexicalScore: number;
   semanticScore: number;
   score: number;
+  semanticMatch?: HighlightRange;
+};
+
+type PassageEmbedding = HighlightRange & { vector: number[] };
+
+type CachedEmbedding = {
+  hash: string;
+  vector: number[];
+  passages: PassageEmbedding[];
+};
+
+type SemanticScore = {
+  score: number;
+  match?: HighlightRange;
 };
 
 export type EmbeddingProvider = (
@@ -32,6 +46,7 @@ export type EmbeddingProvider = (
 const PAGE_SIZE = 30;
 const EMBEDDING_BATCH_SIZE = 64;
 const MAX_EMBEDDING_TEXT = 12_000;
+const SEMANTIC_PASSAGE_SIZE = 320;
 
 /** Embed bounded search documents in batches; the API key stays server-side. */
 async function openAIEmbeddings(
@@ -90,19 +105,84 @@ function hashContent(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-function parseVector(value: unknown): number[] | undefined {
+function validVector(value: unknown): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => typeof item === "number" && Number.isFinite(item))
+  );
+}
+
+function parseEmbedding(
+  value: unknown,
+): Omit<CachedEmbedding, "hash"> | undefined {
   try {
     const parsed: unknown = JSON.parse(String(value));
-    if (
-      Array.isArray(parsed) &&
-      parsed.length &&
-      parsed.every((item) => typeof item === "number" && Number.isFinite(item))
-    ) {
-      return parsed;
-    }
+    // Legacy rows stored only the document vector. Treat them as valid but
+    // passage-less so they are regenerated with semantic ranges below.
+    if (validVector(parsed)) return { vector: parsed, passages: [] };
+    if (!parsed || typeof parsed !== "object") return;
+    const payload = parsed as { vector?: unknown; passages?: unknown };
+    if (!validVector(payload.vector) || !Array.isArray(payload.passages))
+      return;
+    const passages = payload.passages.flatMap((passage): PassageEmbedding[] => {
+      if (!passage || typeof passage !== "object") return [];
+      const candidate = passage as {
+        start?: unknown;
+        end?: unknown;
+        vector?: unknown;
+      };
+      return Number.isInteger(candidate.start) &&
+        Number.isInteger(candidate.end) &&
+        Number(candidate.start) >= 0 &&
+        Number(candidate.end) > Number(candidate.start) &&
+        validVector(candidate.vector)
+        ? [
+            {
+              start: Number(candidate.start),
+              end: Number(candidate.end),
+              vector: candidate.vector,
+            },
+          ]
+        : [];
+    });
+    return { vector: payload.vector, passages };
   } catch {
     // A corrupt cache entry is regenerated below.
   }
+}
+
+/** Split bounded text into readable, exact-range passages for semantic anchoring. */
+function semanticPassages(content: string): HighlightRange[] {
+  const bounded = content.slice(0, MAX_EMBEDDING_TEXT);
+  const passages: HighlightRange[] = [];
+  let start = 0;
+  while (start < bounded.length) {
+    while (/\s/u.test(bounded[start] || "")) start++;
+    if (start >= bounded.length) break;
+    let end = Math.min(start + SEMANTIC_PASSAGE_SIZE, bounded.length);
+    if (end < bounded.length) {
+      const candidate = bounded.slice(start, end);
+      const readableBoundary = Math.max(
+        candidate.lastIndexOf("\n"),
+        candidate.lastIndexOf(". ") + 1,
+        candidate.lastIndexOf("! ") + 1,
+        candidate.lastIndexOf("? ") + 1,
+      );
+      if (readableBoundary >= SEMANTIC_PASSAGE_SIZE / 2)
+        end = start + readableBoundary;
+      else {
+        const space = candidate.lastIndexOf(" ");
+        if (space >= SEMANTIC_PASSAGE_SIZE / 2) end = start + space;
+      }
+    }
+    while (end > start && /\s/u.test(bounded[end - 1])) end--;
+    if (end <= start)
+      end = Math.min(start + SEMANTIC_PASSAGE_SIZE, bounded.length);
+    passages.push({ start, end });
+    start = end;
+  }
+  return passages;
 }
 
 function cosineSimilarity(left: number[], right: number[]): number {
@@ -148,6 +228,7 @@ function mergeRanges(ranges: HighlightRange[]): HighlightRange[] {
 function highlightedSnippet(
   content: string,
   query: string,
+  semanticMatch?: HighlightRange,
 ): { snippet: string; highlights: HighlightRange[] } {
   const comparable = content.normalize("NFKC").toLocaleLowerCase();
   const phrase = query.normalize("NFKC").toLocaleLowerCase();
@@ -163,6 +244,15 @@ function highlightedSnippet(
         index = comparable.indexOf(token, index + token.length);
       }
     }
+  }
+  if (
+    !matches.length &&
+    semanticMatch &&
+    semanticMatch.start >= 0 &&
+    semanticMatch.end > semanticMatch.start &&
+    semanticMatch.end <= content.length
+  ) {
+    matches.push({ ...semanticMatch });
   }
   const anchor = matches[0]?.start ?? 0;
   const start = Math.max(0, anchor - 80);
@@ -319,17 +409,15 @@ export class ConversationSearchService {
     );
   }
 
-  private async cachedEmbeddings(): Promise<
-    Map<string, { hash: string; vector: number[] }>
-  > {
+  private async cachedEmbeddings(): Promise<Map<string, CachedEmbedding>> {
     const result = await this.database.execute({
       sql: "SELECT source_type, source_id, content_hash, embedding_json FROM practice_search_embeddings WHERE resource_id = ? AND model = ?",
       args: [this.resourceId, this.model],
     });
-    const cache = new Map<string, { hash: string; vector: number[] }>();
+    const cache = new Map<string, CachedEmbedding>();
     for (const row of result.rows) {
-      const vector = parseVector(row.embedding_json);
-      if (vector)
+      const embedding = parseEmbedding(row.embedding_json);
+      if (embedding)
         cache.set(
           documentKey({
             sourceType: String(row.source_type) as SearchDocument["sourceType"],
@@ -337,7 +425,7 @@ export class ConversationSearchService {
           }),
           {
             hash: String(row.content_hash),
-            vector,
+            ...embedding,
           },
         );
     }
@@ -348,61 +436,97 @@ export class ConversationSearchService {
     query: string,
     documents: SearchDocument[],
     signal?: AbortSignal,
-  ): Promise<Map<string, number> | undefined> {
+  ): Promise<Map<string, SemanticScore> | undefined> {
     if (Date.now() < this.semanticRetryAfter) return;
     try {
       const cache = await this.cachedEmbeddings();
       const missing = documents.filter((document) => {
         const saved = cache.get(documentKey(document));
-        return !saved || saved.hash !== hashContent(document.content);
+        return (
+          !saved ||
+          saved.hash !== hashContent(document.content) ||
+          !saved.passages.length
+        );
       });
-      const inputs = [
-        query,
-        ...missing.map((document) =>
-          document.content.slice(0, MAX_EMBEDDING_TEXT),
-        ),
-      ];
+      const inputs = [query];
+      const pending = missing.map((document) => {
+        const bounded = document.content.slice(0, MAX_EMBEDDING_TEXT);
+        const passages = semanticPassages(document.content);
+        const documentIndex = inputs.push(bounded) - 1;
+        const passageIndexes = passages.map((passage) =>
+          passage.start === 0 && passage.end === bounded.length
+            ? documentIndex
+            : inputs.push(bounded.slice(passage.start, passage.end)) - 1,
+        );
+        return { document, passages, documentIndex, passageIndexes };
+      });
       const vectors = await this.embed(inputs, this.model, signal);
       if (vectors.length !== inputs.length)
         throw new Error("Embedding provider returned the wrong vector count");
       const queryVector = vectors[0];
       const statements: { sql: string; args: InValue[] }[] = [];
-      missing.forEach((document, index) => {
-        const vector = vectors[index + 1];
-        if (!parseVector(JSON.stringify(vector)))
-          throw new Error("Embedding provider returned an invalid vector");
-        cache.set(documentKey(document), {
-          hash: hashContent(document.content),
-          vector,
-        });
-        statements.push({
-          sql: `INSERT INTO practice_search_embeddings(
+      pending.forEach(
+        ({ document, passages, documentIndex, passageIndexes }) => {
+          const vector = vectors[documentIndex];
+          if (!validVector(vector))
+            throw new Error("Embedding provider returned an invalid vector");
+          const passageEmbeddings = passages.map((passage, index) => {
+            const passageVector = vectors[passageIndexes[index]];
+            if (!validVector(passageVector))
+              throw new Error("Embedding provider returned an invalid vector");
+            return { ...passage, vector: passageVector };
+          });
+          cache.set(documentKey(document), {
+            hash: hashContent(document.content),
+            vector,
+            passages: passageEmbeddings,
+          });
+          statements.push({
+            sql: `INSERT INTO practice_search_embeddings(
               resource_id, thread_id, source_type, source_id, content_hash, model, embedding_json, updated_at)
             VALUES(?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(resource_id, source_type, source_id) DO UPDATE SET
               thread_id = excluded.thread_id, content_hash = excluded.content_hash,
               model = excluded.model, embedding_json = excluded.embedding_json, updated_at = excluded.updated_at`,
-          args: [
-            this.resourceId,
-            document.threadId,
-            document.sourceType,
-            document.sourceId,
-            hashContent(document.content),
-            this.model,
-            JSON.stringify(vector),
-            new Date().toISOString(),
-          ],
-        });
-      });
+            args: [
+              this.resourceId,
+              document.threadId,
+              document.sourceType,
+              document.sourceId,
+              hashContent(document.content),
+              this.model,
+              JSON.stringify({
+                version: 2,
+                vector,
+                passages: passageEmbeddings,
+              }),
+              new Date().toISOString(),
+            ],
+          });
+        },
+      );
       if (statements.length) await writeBatches(this.database, statements);
       return new Map(
-        documents.map((document) => [
-          documentKey(document),
-          cosineSimilarity(
+        documents.map((document): [string, SemanticScore] => {
+          const saved = cache.get(documentKey(document));
+          const documentScore = cosineSimilarity(
             queryVector,
-            cache.get(documentKey(document))?.vector || [],
-          ),
-        ]),
+            saved?.vector || [],
+          );
+          let passageScore = -1;
+          let match: HighlightRange | undefined;
+          for (const passage of saved?.passages || []) {
+            const score = cosineSimilarity(queryVector, passage.vector);
+            if (score > passageScore) {
+              passageScore = score;
+              match = { start: passage.start, end: passage.end };
+            }
+          }
+          return [
+            documentKey(document),
+            { score: Math.max(documentScore, passageScore), match },
+          ];
+        }),
       );
     } catch (error) {
       if (signal?.aborted) throw error;
@@ -423,7 +547,11 @@ export class ConversationSearchService {
     query: string,
   ): ConversationSearchResult {
     if (!document) return { ...thread, attachmentCount };
-    const excerpt = highlightedSnippet(document.content, query);
+    const excerpt = highlightedSnippet(
+      document.content,
+      query,
+      document.semanticMatch,
+    );
     return {
       ...thread,
       snippet: excerpt.snippet,
@@ -490,14 +618,23 @@ export class ConversationSearchService {
     const bestByThread = new Map<string, RankedDocument>();
     for (const document of documents) {
       const lexicalScore = lexical.get(documentKey(document)) || 0;
-      const semanticScore = semantic?.get(documentKey(document)) || 0;
+      const semanticResult = semantic?.get(documentKey(document));
+      const semanticScore = semanticResult?.score || 0;
       if (!lexicalScore && (!semantic || semanticScore < 0.45)) continue;
       const score = semantic
         ? lexicalScore
           ? lexicalScore * 0.6 + Math.max(0, semanticScore) * 0.4
           : Math.max(0, semanticScore) * 0.55
         : lexicalScore;
-      const ranked = { ...document, lexicalScore, semanticScore, score };
+      const ranked = {
+        ...document,
+        lexicalScore,
+        semanticScore,
+        score,
+        ...(semanticResult?.match
+          ? { semanticMatch: semanticResult.match }
+          : {}),
+      };
       if ((bestByThread.get(document.threadId)?.score || -1) < score)
         bestByThread.set(document.threadId, ranked);
     }

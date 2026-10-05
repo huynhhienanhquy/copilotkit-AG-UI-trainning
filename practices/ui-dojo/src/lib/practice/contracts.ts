@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 export const PRACTICE_AGENT_ID = "ghibliAgent";
+export const DEFAULT_CONVERSATION_TITLE = "New conversation";
 export const MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const MAX_MESSAGE_FILES = 3;
 export const EXTRACTION_CHUNK_SIZE = 20_000;
+export const CITATION_CHUNK_SIZE = 2_000;
 export const idSchema = z.string().uuid();
 const optionalQueryBoolean = z.preprocess((value) => {
   if (value === undefined || value === "") return undefined;
@@ -91,6 +93,24 @@ export type Attachment = {
   size: number;
   createdAt: string;
 };
+export type AttachmentCitation = {
+  attachmentId: string;
+  filename: string;
+  page: number;
+  /** Zero-based, inclusive character offset in the complete extracted text. */
+  start: number;
+  /** Zero-based, exclusive character offset in the complete extracted text. */
+  end: number;
+};
+export type ExtractionChunk = AttachmentCitation & {
+  text: string;
+  /** Stable marker that the assistant can copy verbatim into its answer. */
+  citation: string;
+};
+export type AttachmentPreviewTarget = Pick<
+  AttachmentCitation,
+  "page" | "start" | "end"
+>;
 export type Extraction = {
   attachmentId: string;
   filename: string;
@@ -99,4 +119,5 @@ export type Extraction = {
   nextOffset: number | null;
   totalCharacters: number;
   pages: { page: number; start: number; end: number }[];
+  chunks: ExtractionChunk[];
 };

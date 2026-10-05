@@ -28,7 +28,14 @@
 - Provider cancellation: `copilotkit.stopAgent()` and `AbortController.abort()` fire on thread switch; `CopilotKit key={thread.id}` forces full remount. Thread switching verified.
 - All suggestions implemented: theme, sidebar, search, watchlist, upload, rename, pin/unpin, archive, unarchive, delete, show-file, extract, add-film, remove-film, explore-Ghibli.
 - 2026-10-02: upgraded conversation search to FTS5 + cached OpenAI embeddings with hybrid ranking, highlighted snippets, date/attachment/archive filters and interactive agent result cards. Full suite now passes 12 tests across 5 files; lint, typecheck, Vite bundle and Mastra build pass.
-- All A01–A20 acceptance scenarios verified with automated tests and/or browser evidence.
+- 2026-10-05: completed semantic-only highlighting by caching exact-range passage embeddings alongside each title/message vector. Results without lexical overlap now anchor and highlight the most relevant passage instead of defaulting to the start of the message; legacy vector-only cache rows upgrade lazily.
+- 2026-10-05: attachment extraction now returns page-aware citation chunks with attachment/page/character provenance. Agent citations and tool-result passages open the owned file, navigate to the PDF page when applicable and highlight the exact extracted range.
+- 2026-10-05: the first persisted message now generates a short conversation title with a configurable small model. Atomic compare-and-set preserves any title renamed by the user while generation is in flight; provider failure does not fail message submission.
+- 2026-10-05: archive, pin and watchlist mutations now update React Query caches optimistically, restore exact snapshots on API failure and offer persistent inverse mutations through a seven-second Undo toast.
+- 2026-10-05: auto-title now uses the recommended OpenAI Responses API with bounded, non-stored requests; retry, pre-existing rename and provider-failure behavior have explicit regression coverage.
+- 2026-10-05: runtime diagnosis found that the original 64-token Responses budget could be consumed by `gpt-5-mini` reasoning and produce empty `output_text`. The title request now uses low reasoning and a 256-token cap, verified against the configured provider.
+- 2026-10-05: the suite passes 23 tests across 7 files, including citation validation/page boundaries, auto-title idempotency/manual-rename races/failure isolation and deterministic optimistic cache transformations; typecheck, scoped lint and the Vite production build pass.
+- All A01–A23 acceptance scenarios verified with automated tests and/or browser evidence.
 - Windows test cleanup now occurs in a parent process after workers exit; this fixed LibSQL native file locks without skipping assertions or deleting shared/user data.
 
 ## Migration/recovery boundary

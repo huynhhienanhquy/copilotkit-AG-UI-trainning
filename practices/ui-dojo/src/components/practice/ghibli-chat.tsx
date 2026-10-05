@@ -33,11 +33,16 @@ import {
   MAX_MESSAGE_FILES,
   PRACTICE_AGENT_ID,
   type Attachment,
+  type AttachmentPreviewTarget,
   type Conversation,
   type Page,
   type WatchlistItem,
 } from "@/lib/practice/contracts";
 import { PracticeTools } from "./practice-tools";
+import {
+  AttachmentCitationMarkdown,
+  AttachmentCitationProvider,
+} from "./attachment-citation";
 import { initializeAgentSession } from "@/lib/practice/agent-session";
 
 type Props = {
@@ -45,7 +50,7 @@ type Props = {
   expanded: boolean;
   onExpand: (expanded: boolean) => void;
   onSearch: (query: string, archived: boolean) => void;
-  onShowFile: (file: Attachment) => void;
+  onShowFile: (file: Attachment, target?: AttachmentPreviewTarget) => void;
   onSelectConversation: (id: string) => void;
   onWatchlist: () => void;
   onDelete: () => void;
@@ -207,6 +212,14 @@ function ChatSession(
         },
       );
       if (!mounted.current || controller.signal.aborted) return;
+      // The first-message POST may have generated a title; refresh navigation
+      // before the longer assistant run finishes.
+      await Promise.all([
+        client.invalidateQueries({
+          queryKey: ["practice", "thread", props.thread.id],
+        }),
+        client.invalidateQueries({ queryKey: ["practice", "threads"] }),
+      ]);
       if (agent.messages.length > 80) {
         let start = agent.messages.length - 60;
         while (
@@ -327,7 +340,18 @@ function ChatSession(
               </p>
             </div>
           )}
-          <CopilotChatMessageView messages={messages} isRunning={busy} />
+          <AttachmentCitationProvider
+            files={allFiles}
+            onOpen={(file, target) => props.onShowFile(file, target)}
+          >
+            <CopilotChatMessageView
+              messages={messages}
+              isRunning={busy}
+              assistantMessage={{
+                markdownRenderer: AttachmentCitationMarkdown,
+              }}
+            />
+          </AttachmentCitationProvider>
         </div>
         <div className="border-t bg-background p-3 md:px-6">
           {error && (

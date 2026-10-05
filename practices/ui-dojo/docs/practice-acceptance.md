@@ -20,32 +20,52 @@ Status: **accepted**. All features implemented and verified through automated te
 - `npm run typecheck` and `npm run lint`: passed.
 - Vite production bundle: passed; existing externalized-module and large-chunk warnings remain.
 - `npm run mastra:build`: backend bundle and output dependency installation passed.
-- Conversation search now generates cached title/message embeddings lazily, combines cosine similarity with FTS5, highlights lexical matches and renders `find_conversations` results as interactive cards.
+- Conversation search now generates cached title/message and passage embeddings lazily, combines cosine similarity with FTS5, highlights both lexical and semantic-only matches at the relevant character range, and renders `find_conversations` results as interactive cards.
+
+## Citation and auto-title improvements verified on 2026-10-05
+
+- `npm test`: auto-title coverage includes first-message detection, idempotent retry, title normalization, pre-existing/manual rename protection and provider-failure isolation.
+- `npm run typecheck`: passed.
+- Scoped ESLint over application source/scripts and all changed source files: passed.
+- Attachment extraction returns clickable, page-aware citations with exact character ranges; preview highlights the cited segment and opens the matching PDF page when available.
+- First messages generate short titles through a configurable small model. The generated value is committed only while the canonical title is still `New conversation`.
+
+## Optimistic update and Undo verified on 2026-10-05
+
+- `npm test`: 7 files, 23 tests passed. Deterministic coverage verifies auto-title failure/race behavior, active/archive movement, pin ordering, watchlist removal/restoration and immutable rollback snapshots.
+- `npm run typecheck`: passed.
+- Scoped ESLint over `src` and `scripts`: passed.
+- Vite production build: passed; existing browser-externalization and large-chunk warnings remain.
+- Archive, restore, pin, unpin, watchlist add and watchlist remove update their React Query caches before the API response.
+- Failed requests restore the pre-mutation cache; successful archive, pin and watchlist removal actions expose a seven-second persistent Undo mutation.
 
 ## Acceptance matrix
 
-| ID  | Status | Evidence                                                                                                                           |
-| --- | ------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| A01 | ✅     | Bridge test two turns + restore; browser reload restore verified                                                                   |
-| A02 | ✅     | Database reopen preserves threads/messages/watchlist/files; browser restart restores last thread                                   |
-| A03 | ✅     | `beginRun` guard rejects concurrent runs; `CopilotKit key` forces clean remount on switch                                          |
-| A04 | ✅     | `restoreMessages` renders historical tool results; `currentTurnMessages` excludes earlier tools                                    |
-| A05 | ✅     | 62-message service test + 53-message HTTP pagination test                                                                          |
-| A06 | ✅     | Concurrent rename/pin/archive merge; reopen preserves all metadata                                                                 |
-| A07 | ✅     | Delete cleans files + messages; navigate to valid thread or new-chat screen                                                        |
-| A08 | ✅     | Real-model theme toggle; inverse state suggestions (light↔dark)                                                                    |
-| A09 | ✅     | Hybrid FTS5/semantic search across persisted titles/messages; highlight plus active/archive, inclusive date and attachment filters |
-| A10 | ✅     | Concurrent duplicate add returns `added` + `already_exists`                                                                        |
-| A11 | ✅     | Repeated remove returns `not_found`                                                                                                |
-| A12 | ✅     | Resource-scoped list; cross-thread isolation; database reopen preserves watchlist                                                  |
-| A13 | ✅     | TXT/Markdown/PDF/DOCX fixtures extract correctly with page metadata                                                                |
-| A14 | ✅     | Oversized, spoofed, invalid UTF-8, malformed PDF/DOCX, OCR-required all rejected                                                   |
-| A15 | ✅     | Chunked extraction with `nextOffset` continuation; provenance preserved                                                            |
-| A16 | ✅     | Upload → bind → reload → read → extract persists through database reopen                                                           |
-| A17 | ✅     | Foreign resource file/thread reads rejected; cross-thread message overwrite blocked                                                |
-| A18 | ✅     | Idempotent retry IDs; catalog failure returns structured error; abort/timeout covered                                              |
-| A19 | ✅     | 15 suggestions in registry; context-aware inverse actions; upload prompt when no files                                             |
-| A20 | ✅     | `lint` + `typecheck` + `vite:build` + `mastra:build` pass; old demos unaffected                                                    |
+| ID  | Status | Evidence                                                                                                                             |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| A01 | ✅     | Bridge test two turns + restore; browser reload restore verified                                                                     |
+| A02 | ✅     | Database reopen preserves threads/messages/watchlist/files; browser restart restores last thread                                     |
+| A03 | ✅     | `beginRun` guard rejects concurrent runs; `CopilotKit key` forces clean remount on switch                                            |
+| A04 | ✅     | `restoreMessages` renders historical tool results; `currentTurnMessages` excludes earlier tools                                      |
+| A05 | ✅     | 62-message service test + 53-message HTTP pagination test                                                                            |
+| A06 | ✅     | Concurrent rename/pin/archive merge; reopen preserves all metadata                                                                   |
+| A07 | ✅     | Delete cleans files + messages; navigate to valid thread or new-chat screen                                                          |
+| A08 | ✅     | Real-model theme toggle; inverse state suggestions (light↔dark)                                                                      |
+| A09 | ✅     | Hybrid FTS5/semantic search across persisted titles/messages; highlight plus active/archive, inclusive date and attachment filters   |
+| A10 | ✅     | Concurrent duplicate add returns `added` + `already_exists`                                                                          |
+| A11 | ✅     | Repeated remove returns `not_found`                                                                                                  |
+| A12 | ✅     | Resource-scoped list; cross-thread isolation; database reopen preserves watchlist                                                    |
+| A13 | ✅     | TXT/Markdown/PDF/DOCX fixtures extract correctly with page metadata                                                                  |
+| A14 | ✅     | Oversized, spoofed, invalid UTF-8, malformed PDF/DOCX, OCR-required all rejected                                                     |
+| A15 | ✅     | Chunked extraction with `nextOffset` continuation; provenance preserved                                                              |
+| A16 | ✅     | Upload → bind → reload → read → extract persists through database reopen                                                             |
+| A17 | ✅     | Foreign resource file/thread reads rejected; cross-thread message overwrite blocked                                                  |
+| A18 | ✅     | Idempotent retry IDs; catalog failure returns structured error; abort/timeout covered                                                |
+| A19 | ✅     | 15 suggestions in registry; context-aware inverse actions; upload prompt when no files                                               |
+| A20 | ✅     | `lint` + `typecheck` + `vite:build` + `mastra:build` pass; old demos unaffected                                                      |
+| A21 | ✅     | Page-aware extraction chunks return attachment/page/range provenance; citation click opens and highlights the exact owned source     |
+| A22 | ✅     | First-message title generation is idempotent and atomic; concurrent manual rename is never overwritten                               |
+| A23 | ✅     | Archive, pin and watchlist removal update optimistically; failures rollback snapshots and successful actions support persistent Undo |
 
 ## Runtime decisions
 
@@ -59,4 +79,4 @@ Status: **accepted**. All features implemented and verified through automated te
 
 ## Known limits
 
-Single-user resource and one server process; local disk persistence; no OCR; bounded document extraction. Embeddings are stored as JSON and cosine ranking runs in-process, so a native vector index is recommended at larger scale. Multi-user authentication, distributed run leases and object storage are outside the agreed practice scope.
+Single-user resource and one server process; local disk persistence; no OCR; bounded document extraction. TXT, Markdown and DOCX citations use virtual page 1 because raw-text extraction has no reliable pagination. First-message title generation can add up to the configured 8-second provider timeout and currently has no background retry. Only the latest reversible UI action has a seven-second Undo window; conversation deletion remains a confirmed, non-undoable cleanup. Embeddings are stored as JSON and cosine ranking runs in-process, so a native vector index is recommended at larger scale. Multi-user authentication, distributed run leases and object storage are outside the agreed practice scope.

@@ -73,7 +73,7 @@ describe("hybrid conversation search", () => {
     await conversations.saveUserMessage(
       ghibli.id,
       randomUUID(),
-      "Totoro waits beside the Catbus at dusk.",
+      `${"Production notes unrelated to animation. ".repeat(10)}Totoro waits beside the Catbus at dusk.`,
     );
     const work = await conversations.create();
     await conversations.update(work.id, { title: "Work notes" });
@@ -95,7 +95,18 @@ describe("hybrid conversation search", () => {
       lexicalScore: 0,
       semanticScore: 1,
     });
-    expect(semantic.items[0].snippetHighlights).toEqual([]);
+    expect(semantic.items[0].snippetHighlights?.length).toBeGreaterThan(0);
+    expect(semantic.items[0].snippet).toContain(
+      "Totoro waits beside the Catbus",
+    );
+    expect(
+      semantic.items[0].snippet
+        ?.slice(
+          semantic.items[0].snippetHighlights![0].start,
+          semantic.items[0].snippetHighlights![0].end,
+        )
+        .toLowerCase(),
+    ).toContain("totoro waits beside the catbus");
 
     const lexical = await search.search({
       query: "quarterly finance",

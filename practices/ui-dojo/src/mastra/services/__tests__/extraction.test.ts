@@ -8,12 +8,22 @@ it("extracts known TXT/Markdown, PDF and DOCX fixtures using real bounded parser
   const pdf = await extractDocument(pdfFixture(), "pdf");
   expect(pdf.text).toContain("Totoro picnic at noon");
   expect(pdf.pages).toEqual([{ page: 1, start: 0, end: pdf.text.length }]);
-  expect((await extractDocument(docxFixture(), "docx")).text.trim()).toBe("Totoro cuối tuần 🌿");
+  const docx = await extractDocument(docxFixture(), "docx");
+  expect(docx.text.trim()).toBe("Totoro cuối tuần 🌿");
+  expect(docx.pages).toEqual([{ page: 1, start: 0, end: docx.text.length }]);
 });
 
 it("reports unreadable, blank and malformed documents without fabricating text", async () => {
-  await expect(extractDocument(pdfFixture(""), "pdf")).rejects.toMatchObject({ message: expect.stringContaining("OCR") });
-  await expect(extractDocument(Buffer.from("%PDF-broken"), "pdf")).rejects.toMatchObject({ code: "extraction_failed" });
-  await expect(extractDocument(Buffer.from("PKbroken"), "docx")).rejects.toMatchObject({ code: "extraction_failed" });
-  await expect(extractDocument(Buffer.from("   "), "text")).rejects.toMatchObject({ code: "extraction_failed" });
+  await expect(extractDocument(pdfFixture(""), "pdf")).rejects.toMatchObject({
+    message: expect.stringContaining("OCR"),
+  });
+  await expect(
+    extractDocument(Buffer.from("%PDF-broken"), "pdf"),
+  ).rejects.toMatchObject({ code: "extraction_failed" });
+  await expect(
+    extractDocument(Buffer.from("PKbroken"), "docx"),
+  ).rejects.toMatchObject({ code: "extraction_failed" });
+  await expect(
+    extractDocument(Buffer.from("   "), "text"),
+  ).rejects.toMatchObject({ code: "extraction_failed" });
 });

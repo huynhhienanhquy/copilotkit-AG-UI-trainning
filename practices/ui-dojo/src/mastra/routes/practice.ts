@@ -19,6 +19,7 @@ import {
 } from "../../lib/practice/contracts";
 import {
   conversations,
+  conversationTitles,
   getWatchlist,
   getAttachments,
   getConversationSearch,
@@ -178,7 +179,7 @@ export const practiceRoutes = [
             "empty_message",
             "Enter a message or attach a document",
           );
-        return conversations.writeToThread(threadId, async () => {
+        const saved = await conversations.writeToThread(threadId, async () => {
           const attachments = await getAttachments();
           const files = await attachments.validateBinding(
             threadId,
@@ -192,8 +193,18 @@ export const practiceRoutes = [
             (input.text || "Please read the attached document.") + references;
           await conversations.saveUserMessage(threadId, input.id, content);
           await attachments.bind(threadId, input.id, input.attachmentIds);
-          return json({ id: input.id, role: "user", content }, 201);
+          return {
+            content,
+            titleInput:
+              input.text ||
+              `Discuss ${files.map((file) => file.filename).join(", ")}`,
+          };
         });
+        await conversationTitles.generateIfDefault(threadId, saved.titleInput);
+        return json(
+          { id: input.id, role: "user", content: saved.content },
+          201,
+        );
       }),
   }),
   registerApiRoute("/practice/films", {

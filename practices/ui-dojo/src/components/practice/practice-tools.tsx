@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme-provider";
 import type {
   Attachment,
+  AttachmentPreviewTarget,
   Conversation,
   ConversationSearchPage,
+  Extraction,
   WatchlistItem,
 } from "@/lib/practice/contracts";
 import { ConversationSearchCard } from "./conversation-search-card";
@@ -22,7 +24,7 @@ type Props = {
   onExpand: (expanded: boolean) => void;
   onSearch: (query: string, archived: boolean) => void;
   onSelectConversation: (id: string) => void;
-  onShowFile: (id: string) => void;
+  onShowFile: (id: string, target?: AttachmentPreviewTarget) => void;
   onWatchlist: () => void;
   onDelete: () => void;
 };
@@ -82,13 +84,26 @@ export function PracticeTools(props: Props) {
   });
   useFrontendTool({
     name: "show_attachment",
-    description: "Open a preview of a file attached to this conversation.",
-    parameters: z.object({ attachmentId: z.string().uuid() }),
-    handler: async ({ attachmentId }) => {
+    description:
+      "Open a preview of a file attached to this conversation, optionally focused on an extracted source range.",
+    parameters: z.object({
+      attachmentId: z.string().uuid(),
+      page: z.number().int().min(1).optional(),
+      start: z.number().int().min(0).optional(),
+      end: z.number().int().min(1).optional(),
+    }),
+    handler: async ({ attachmentId, page, start, end }) => {
       if (!props.files.some((file) => file.id === attachmentId))
         return { error: "Attachment not found in this conversation" };
-      props.onShowFile(attachmentId);
-      return { opened: true, attachmentId };
+      const target =
+        page !== undefined &&
+        start !== undefined &&
+        end !== undefined &&
+        end > start
+          ? { page, start, end }
+          : undefined;
+      props.onShowFile(attachmentId, target);
+      return { opened: true, attachmentId, target };
     },
   });
   useFrontendTool({
@@ -143,6 +158,71 @@ export function PracticeTools(props: Props) {
           <Button variant="outline" size="sm" onClick={props.onWatchlist}>
             Open current watchlist
           </Button>
+        </div>
+      );
+    },
+  });
+  useRenderTool({
+    name: "extract_attachment",
+    parameters: z.object({
+      attachmentId: z.string().uuid(),
+      offset: z.number().int().min(0).optional(),
+    }),
+    render: ({ status, result }) => {
+      let decoded: unknown = result;
+      if (typeof result === "string") {
+        try {
+          decoded = JSON.parse(result);
+        } catch {
+          decoded = null;
+        }
+      }
+      const extraction =
+        decoded &&
+        typeof decoded === "object" &&
+        typeof (decoded as Extraction).attachmentId === "string" &&
+        Array.isArray((decoded as Extraction).chunks)
+          ? (decoded as Extraction)
+          : null;
+      const file = extraction
+        ? props.files.find((item) => item.id === extraction.attachmentId)
+        : undefined;
+      return (
+        <div className="my-2 space-y-2 rounded-lg border p-3">
+          <div>
+            <p className="font-medium">Document sources</p>
+            <p className="text-xs text-muted-foreground">
+              {status !== "complete"
+                ? "Extracting page-aware passages…"
+                : extraction
+                  ? `${extraction.filename} · characters ${extraction.offset + 1}\u2013${extraction.offset + extraction.text.length}`
+                  : "Source passages unavailable"}
+            </p>
+          </div>
+          {file && extraction && (
+            <div className="flex flex-wrap gap-2">
+              {extraction.chunks.map((chunk) => (
+                <Button
+                  key={`${chunk.page}-${chunk.start}-${chunk.end}`}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-auto whitespace-normal text-left"
+                  title={`Characters ${chunk.start + 1}\u2013${chunk.end}`}
+                  onClick={() =>
+                    props.onShowFile(file.id, {
+                      page: chunk.page,
+                      start: chunk.start,
+                      end: chunk.end,
+                    })
+                  }
+                >
+                  {chunk.filename} · p. {chunk.page} · {chunk.start + 1}\u2013
+                  {chunk.end}
+                </Button>
+              ))}
+            </div>
+          )}
         </div>
       );
     },

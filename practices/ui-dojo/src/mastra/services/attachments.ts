@@ -4,11 +4,13 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { basename, extname, resolve, sep } from "node:path";
 import type { Attachment, Extraction } from "../../lib/practice/contracts";
 import {
+  CITATION_CHUNK_SIZE,
   EXTRACTION_CHUNK_SIZE,
   MAX_FILE_BYTES,
   MAX_MESSAGE_FILES,
   idSchema,
 } from "../../lib/practice/contracts";
+import { citationMarker } from "../../lib/practice/citations";
 import { PracticeError } from "./practice-errors";
 import {
   extractedDocumentSchema,
@@ -25,6 +27,61 @@ const kinds: Record<string, { kind: string; mime: string }> = {
     mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   },
 };
+
+/** Prefer readable boundaries while ensuring every citation remains within one page. */
+function citationEnd(text: string, start: number, pageEnd: number): number {
+  const hardEnd = Math.min(start + CITATION_CHUNK_SIZE, pageEnd);
+  if (hardEnd === pageEnd) return hardEnd;
+  const minimum = start + Math.floor(CITATION_CHUNK_SIZE / 2);
+  const sample = text.slice(start, hardEnd);
+  const boundaries = [
+    sample.lastIndexOf("\n\n"),
+    sample.lastIndexOf("\n"),
+    sample.lastIndexOf(". "),
+    sample.lastIndexOf("! "),
+    sample.lastIndexOf("? "),
+    sample.lastIndexOf(" "),
+  ];
+  const boundary = Math.max(...boundaries);
+  return boundary >= minimum - start ? start + boundary + 1 : hardEnd;
+}
+
+/** Create bounded, page-aware source passages with exact global character ranges. */
+export function createCitationChunks(
+  document: ExtractedDocument,
+  attachmentId: string,
+  filename: string,
+  start: number,
+  end: number,
+) {
+  const pages = document.pages.length
+    ? document.pages
+    : [{ page: 1, start: 0, end: document.text.length }];
+  return pages.flatMap((page) => {
+    const pageStart = Math.max(start, page.start);
+    const pageEnd = Math.min(end, page.end);
+    if (pageStart >= pageEnd) return [];
+    const chunks = [];
+    let cursor = pageStart;
+    while (cursor < pageEnd) {
+      const chunkEnd = citationEnd(document.text, cursor, pageEnd);
+      const source = {
+        attachmentId,
+        filename,
+        page: page.page,
+        start: cursor,
+        end: chunkEnd,
+      };
+      chunks.push({
+        ...source,
+        text: document.text.slice(cursor, chunkEnd),
+        citation: citationMarker(source),
+      });
+      cursor = chunkEnd;
+    }
+    return chunks;
+  });
+}
 
 /** Map public metadata without exposing storage paths or extracted content. */
 function toAttachment(row: Row): Attachment {
@@ -270,16 +327,19 @@ export class AttachmentService {
     )
       throw new PracticeError("invalid_offset", "Invalid text offset");
     const end = Math.min(offset + EXTRACTION_CHUNK_SIZE, document.text.length);
+    const filename = String(row.filename);
+    const pages = document.pages.length
+      ? document.pages
+      : [{ page: 1, start: 0, end: document.text.length }];
     return {
       attachmentId: id,
-      filename: String(row.filename),
+      filename,
       text: document.text.slice(offset, end),
       offset,
       nextOffset: end < document.text.length ? end : null,
       totalCharacters: document.text.length,
-      pages: document.pages.filter(
-        (page) => page.end > offset && page.start < end,
-      ),
+      pages: pages.filter((page) => page.end > offset && page.start < end),
+      chunks: createCitationChunks(document, id, filename, offset, end),
     };
   }
 
