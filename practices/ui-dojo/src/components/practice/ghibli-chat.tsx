@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import {
   useInfiniteQuery,
   useQuery,
@@ -6,12 +6,16 @@ import {
 } from "@tanstack/react-query";
 import {
   CopilotChatMessageView,
+  CopilotChatAssistantMessage,
   CopilotChatConfigurationProvider,
+  CopilotChatUserMessage,
   useAgent,
   useCopilotKit,
+  type CopilotChatAssistantMessageProps,
+  type CopilotChatUserMessageProps,
 } from "@copilotkit/react-core/v2";
-import type { Message } from "@ag-ui/core";
-import { Paperclip, Send, Square, X, FileText } from "lucide-react";
+import type { AssistantMessage, Message, UserMessage } from "@ag-ui/core";
+import { FileText, Paperclip, RotateCcw, Send, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,6 +41,7 @@ import {
   type Conversation,
   type Page,
   type WatchlistItem,
+  type ThreadPatch,
 } from "@/lib/practice/contracts";
 import { PracticeTools } from "./practice-tools";
 import {
@@ -44,6 +49,94 @@ import {
   AttachmentCitationProvider,
 } from "./attachment-citation";
 import { initializeAgentSession } from "@/lib/practice/agent-session";
+import {
+  editableUserText,
+  failedToolCallIds,
+} from "@/lib/practice/message-actions";
+import type { UndoToastRequest } from "./undo-toast";
+
+type MessageActionContextValue = {
+  messages: Message[];
+  disabled: boolean;
+  interruptedIds: ReadonlySet<string>;
+  edit: (message: UserMessage) => void;
+  regenerate: (message: AssistantMessage) => void;
+  retryTool: (message: AssistantMessage) => void;
+};
+
+const MessageActionContext = createContext<MessageActionContextValue | null>(
+  null,
+);
+
+/** Add durable Ghibli message actions while preserving CopilotKit's native rendering. */
+const PracticeAssistantMessage = Object.assign(
+  function PracticeAssistantMessageRenderer(
+    props: CopilotChatAssistantMessageProps,
+  ) {
+    const actions = useContext(MessageActionContext);
+    const failedCalls = actions
+      ? failedToolCallIds(props.message, actions.messages)
+      : [];
+    const interrupted =
+      props.message.name === "interrupted" ||
+      Boolean(actions?.interruptedIds.has(props.message.id));
+
+    return (
+      <div>
+        <CopilotChatAssistantMessage
+          {...props}
+          markdownRenderer={AttachmentCitationMarkdown}
+          onRegenerate={
+            actions ? (message) => actions.regenerate(message) : undefined
+          }
+          copyButton={{
+            title: "Copy response",
+            "aria-label": "Copy response",
+          }}
+          regenerateButton={{ disabled: actions?.disabled }}
+        />
+        {(interrupted || failedCalls.length > 0) && (
+          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+            {interrupted && (
+              <span role="status" className="rounded-full border px-2 py-0.5">
+                Interrupted
+              </span>
+            )}
+            {failedCalls.length > 0 && actions && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7"
+                disabled={actions.disabled}
+                onClick={() => actions.retryTool(props.message)}
+              >
+                <RotateCcw className="size-3" />
+                Retry failed tool call
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  },
+  CopilotChatAssistantMessage,
+);
+
+/** Connect CopilotKit's native edit affordance to the durable revision flow. */
+const PracticeUserMessage = Object.assign(function PracticeUserMessageRenderer(
+  props: CopilotChatUserMessageProps,
+) {
+  const actions = useContext(MessageActionContext);
+  return (
+    <CopilotChatUserMessage
+      {...props}
+      onEditMessage={
+        actions ? ({ message }) => actions.edit(message) : undefined
+      }
+      editButton={{ disabled: actions?.disabled }}
+    />
+  );
+}, CopilotChatUserMessage);
 
 type Props = {
   thread: Conversation;
@@ -55,6 +148,11 @@ type Props = {
   onWatchlist: () => void;
   onDelete: () => void;
   onBusy: (busy: boolean) => void;
+  onUpdateConversation: (
+    id: string,
+    patch: ThreadPatch,
+  ) => Promise<Conversation>;
+  showUndo: (request: UndoToastRequest) => void;
 };
 
 /** Hydrate the latest page before mounting a runtime; older pages are read-only message history. */
@@ -119,6 +217,15 @@ function ChatSession(
   const [ready, setReady] = useState(false);
   const [showFeatures, setShowFeatures] = useState(false);
   const [trimmedHistory, setTrimmedHistory] = useState<Message[]>([]);
+  const [revisedHistory, setRevisedHistory] = useState<Message[] | null>(null);
+  const [editMessage, setEditMessage] = useState<UserMessage | null>(null);
+  const [editText, setEditText] = useState("");
+  const [interruptedIds, setInterruptedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [interruptedNotice, setInterruptedNotice] = useState(false);
+  const [deletingFile, setDeletingFile] = useState<Attachment | null>(null);
+  const [deletingFilePending, setDeletingFilePending] = useState(false);
   const [draftIds, setDraftIds] = useState<string[]>([]);
   const uploadInput = useRef<HTMLInputElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
@@ -176,9 +283,11 @@ function ChatSession(
   });
   const messages = [
     ...new Map(
-      [...props.olderMessages, ...trimmedHistory, ...agent.messages].map(
-        (message) => [message.id, message],
-      ),
+      [
+        ...(revisedHistory ?? props.olderMessages),
+        ...(revisedHistory ? [] : trimmedHistory),
+        ...agent.messages,
+      ].map((message) => [message.id, message]),
     ).values(),
   ];
 
@@ -195,6 +304,7 @@ function ChatSession(
     sending.current = true;
     setBusy(true);
     setError("");
+    setInterruptedNotice(false);
     const id = crypto.randomUUID();
     const controller = new AbortController();
     pending.current = controller;
@@ -227,10 +337,10 @@ function ChatSession(
           agent.messages[start].role !== "user"
         )
           start++;
-        setTrimmedHistory((previous) => [
-          ...previous,
-          ...agent.messages.slice(0, start),
-        ]);
+        const discarded = agent.messages.slice(0, start);
+        if (revisedHistory)
+          setRevisedHistory((previous) => [...(previous || []), ...discarded]);
+        else setTrimmedHistory((previous) => [...previous, ...discarded]);
         agent.setMessages(agent.messages.slice(start));
       }
       agent.addMessage(message);
@@ -251,6 +361,75 @@ function ChatSession(
         await client.invalidateQueries({ queryKey: ["practice"] });
       }
     }
+  }
+
+  /** Revise persisted history first, hydrate the canonical result, then replay the last user turn. */
+  async function reviseAndRun(
+    action: "edit" | "regenerate" | "retry_tool",
+    messageId: string,
+    text?: string,
+  ) {
+    if (!ready || sending.current || uploading || props.thread.archivedAt)
+      return;
+    sending.current = true;
+    setBusy(true);
+    setError("");
+    setInterruptedNotice(false);
+    const controller = new AbortController();
+    pending.current = controller;
+    try {
+      const result = await practiceApi<{ items: Message[] }>(
+        `/threads/${props.thread.id}/messages/${messageId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ action, ...(text ? { text } : {}) }),
+          signal: controller.signal,
+        },
+      );
+      if (!mounted.current || controller.signal.aborted) return;
+      let start = Math.max(0, result.items.length - 80);
+      while (start < result.items.length && result.items[start].role !== "user")
+        start++;
+      setRevisedHistory(result.items.slice(0, start));
+      setTrimmedHistory([]);
+      agent.setMessages(result.items.slice(start));
+      setEditMessage(null);
+      setEditText("");
+      await copilotkit.runAgent({ agent });
+    } catch (failure) {
+      if (mounted.current)
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : "The message action failed. Please try again.",
+        );
+    } finally {
+      sending.current = false;
+      if (mounted.current) {
+        setBusy(false);
+        await client.invalidateQueries({ queryKey: ["practice"] });
+      }
+    }
+  }
+
+  /** Abort the active stream and retain an explicit terminal state for the partial answer. */
+  function stopResponse() {
+    let latestUserIndex = -1;
+    for (let index = agent.messages.length - 1; index >= 0; index--) {
+      if (agent.messages[index].role === "user") {
+        latestUserIndex = index;
+        break;
+      }
+    }
+    const latestAssistant = [...agent.messages.slice(latestUserIndex + 1)]
+      .reverse()
+      .find((message) => message.role === "assistant");
+    if (latestAssistant)
+      setInterruptedIds((previous) =>
+        new Set(previous).add(latestAssistant.id),
+      );
+    setInterruptedNotice(true);
+    void copilotkit.stopAgent({ agent });
   }
 
   /** Upload selected documents before sending; a failed file remains an explicit retryable error. */
@@ -310,6 +489,7 @@ function ChatSession(
           const file = allFiles.find((item) => item.id === id);
           if (file) props.onShowFile(file);
         }}
+        onDeleteFile={setDeletingFile}
       />
       <div className="flex h-full min-h-0 flex-col">
         <div
@@ -344,19 +524,39 @@ function ChatSession(
             files={allFiles}
             onOpen={(file, target) => props.onShowFile(file, target)}
           >
-            <CopilotChatMessageView
-              messages={messages}
-              isRunning={busy}
-              assistantMessage={{
-                markdownRenderer: AttachmentCitationMarkdown,
+            <MessageActionContext.Provider
+              value={{
+                messages,
+                disabled: busy || uploading,
+                interruptedIds,
+                edit: (message) => {
+                  setEditMessage(message);
+                  setEditText(editableUserText(message));
+                },
+                regenerate: (message) =>
+                  void reviseAndRun("regenerate", message.id),
+                retryTool: (message) =>
+                  void reviseAndRun("retry_tool", message.id),
               }}
-            />
+            >
+              <CopilotChatMessageView
+                messages={messages}
+                isRunning={busy}
+                assistantMessage={PracticeAssistantMessage}
+                userMessage={PracticeUserMessage}
+              />
+            </MessageActionContext.Provider>
           </AttachmentCitationProvider>
         </div>
         <div className="border-t bg-background p-3 md:px-6">
           {error && (
             <p role="alert" className="mb-2 text-sm text-destructive">
               {error}
+            </p>
+          )}
+          {interruptedNotice && (
+            <p role="status" className="mb-2 text-sm text-muted-foreground">
+              Response interrupted. You can regenerate it when ready.
             </p>
           )}
           {files.error && (
@@ -394,25 +594,13 @@ function ChatSession(
                         Attach to next message
                       </Button>
                     )}
-                    {draftIds.includes(file.id) && (
+                    {!file.messageId && (
                       <Button
                         variant="ghost"
                         size="icon"
                         disabled={busy}
-                        aria-label={`Remove ${file.filename}`}
-                        onClick={async () => {
-                          try {
-                            await practiceApi(`/attachments/${file.id}`, {
-                              method: "DELETE",
-                            });
-                            setDraftIds((ids) =>
-                              ids.filter((id) => id !== file.id),
-                            );
-                            await files.refetch();
-                          } catch (failure) {
-                            setError(String(failure));
-                          }
-                        }}
+                        aria-label={`Delete ${file.filename}`}
+                        onClick={() => setDeletingFile(file)}
                       >
                         <X className="size-3" />
                       </Button>
@@ -501,7 +689,7 @@ function ChatSession(
                     type="button"
                     variant="outline"
                     size="icon"
-                    onClick={() => copilotkit.stopAgent({ agent })}
+                    onClick={stopResponse}
                     aria-label="Stop response"
                   >
                     <Square />
@@ -551,6 +739,106 @@ function ChatSession(
                 {suggestion.label}
               </Button>
             ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={Boolean(editMessage)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditMessage(null);
+            setEditText("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Edit and resend message</DialogTitle>
+            <DialogDescription>
+              Later responses will be replaced with a new answer to this
+              message. Attached file references are preserved.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            aria-label="Edit message"
+            value={editText}
+            maxLength={20_000}
+            rows={6}
+            onChange={(event) => setEditText(event.target.value)}
+          />
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setEditMessage(null);
+                setEditText("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!editText.trim() || busy || uploading}
+              onClick={() => {
+                if (editMessage)
+                  void reviseAndRun("edit", editMessage.id, editText.trim());
+              }}
+            >
+              Save and resend
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={Boolean(deletingFile)}
+        onOpenChange={(open) => {
+          if (!open && !deletingFilePending) setDeletingFile(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete file?</DialogTitle>
+            <DialogDescription>
+              “{deletingFile?.filename}” will be permanently removed from this
+              workspace. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              disabled={deletingFilePending}
+              onClick={() => setDeletingFile(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deletingFilePending}
+              onClick={async () => {
+                if (!deletingFile) return;
+                setDeletingFilePending(true);
+                setError("");
+                try {
+                  await practiceApi(`/attachments/${deletingFile.id}`, {
+                    method: "DELETE",
+                  });
+                  setDraftIds((ids) =>
+                    ids.filter((id) => id !== deletingFile.id),
+                  );
+                  setDeletingFile(null);
+                  await files.refetch();
+                } catch (failure) {
+                  setError(
+                    failure instanceof Error
+                      ? failure.message
+                      : "File deletion failed",
+                  );
+                } finally {
+                  setDeletingFilePending(false);
+                }
+              }}
+            >
+              {deletingFilePending ? "Deleting…" : "Delete file"}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

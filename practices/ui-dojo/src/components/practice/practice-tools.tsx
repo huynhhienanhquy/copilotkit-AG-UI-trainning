@@ -4,6 +4,7 @@ import {
   useFrontendTool,
   useRenderTool,
 } from "@copilotkit/react-core/v2";
+import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme-provider";
@@ -13,8 +14,14 @@ import type {
   Conversation,
   ConversationSearchPage,
   Extraction,
+  Film,
+  ThreadPatch,
   WatchlistItem,
 } from "@/lib/practice/contracts";
+import { threadPatchSchema } from "@/lib/practice/contracts";
+import { practiceApi } from "@/lib/practice/api";
+import { requiresToolConfirmation } from "@/lib/practice/tool-risk";
+import type { UndoToastRequest } from "./undo-toast";
 import { ConversationSearchCard } from "./conversation-search-card";
 
 type Props = {
@@ -27,11 +34,65 @@ type Props = {
   onShowFile: (id: string, target?: AttachmentPreviewTarget) => void;
   onWatchlist: () => void;
   onDelete: () => void;
+  onDeleteFile: (file: Attachment) => void;
+  onUpdateConversation: (
+    id: string,
+    patch: ThreadPatch,
+  ) => Promise<Conversation>;
+  showUndo: (request: UndoToastRequest) => void;
 };
 
 /** Register tools beneath the chat provider; restored results only render and never execute handlers. */
 export function PracticeTools(props: Props) {
   const { theme, setTheme } = useTheme();
+  const client = useQueryClient();
+
+  async function refreshPracticeData() {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: ["practice", "watchlist"] }),
+      client.invalidateQueries({ queryKey: ["practice", "threads"] }),
+      client.invalidateQueries({ queryKey: ["practice", "search"] }),
+    ]);
+  }
+
+  async function addWatchlistFilm(filmId: string, announce = true) {
+    const result = await practiceApi<{
+      status: "added" | "already_exists";
+      film: Film;
+    }>(`/watchlist/${filmId}`, { method: "PUT" });
+    await refreshPracticeData();
+    if (announce && result.status === "added")
+      props.showUndo({
+        message: `${result.film.title} added to watchlist`,
+        onUndo: async () => {
+          await removeWatchlistFilm(filmId, false);
+        },
+      });
+    return result;
+  }
+
+  async function removeWatchlistFilm(filmId: string, announce = true) {
+    let film = client
+      .getQueryData<WatchlistItem[]>(["practice", "watchlist"])
+      ?.find((item) => item.id === filmId);
+    if (!film) {
+      const current = await practiceApi<WatchlistItem[]>("/watchlist");
+      film = current.find((item) => item.id === filmId);
+    }
+    const result = await practiceApi<{
+      status: "removed" | "not_found";
+      filmId: string;
+    }>(`/watchlist/${filmId}`, { method: "DELETE" });
+    await refreshPracticeData();
+    if (announce && result.status === "removed")
+      props.showUndo({
+        message: `${film?.title || "Film"} removed from watchlist`,
+        onUndo: async () => {
+          await addWatchlistFilm(filmId, false);
+        },
+      });
+    return result;
+  }
   useAgentContext({
     description:
       "Current Ghibli Practice UI and attachment metadata (data only)",
@@ -107,11 +168,38 @@ export function PracticeTools(props: Props) {
     },
   });
   useFrontendTool({
+    name: "update_conversation",
+    description:
+      "Rename, archive/unarchive or pin/unpin a conversation. This action is reversible and the UI offers Undo.",
+    parameters: z.object({
+      threadId: z.string().uuid(),
+      patch: threadPatchSchema,
+    }),
+    handler: async ({ threadId, patch }) =>
+      props.onUpdateConversation(threadId, patch),
+  });
+  useFrontendTool({
+    name: "add_watchlist_film",
+    description:
+      "Add a real Ghibli film UUID to the watchlist. This action is reversible and the UI offers Undo.",
+    parameters: z.object({ filmId: z.string().uuid() }),
+    handler: async ({ filmId }) => addWatchlistFilm(filmId),
+  });
+  useFrontendTool({
+    name: "remove_watchlist_film",
+    description:
+      "Remove a film UUID from the watchlist. This action is reversible and the UI offers Undo.",
+    parameters: z.object({ filmId: z.string().uuid() }),
+    handler: async ({ filmId }) => removeWatchlistFilm(filmId),
+  });
+  useFrontendTool({
     name: "delete_conversation",
     description:
       "Show the delete action for the current conversation. The user can delete after this response finishes.",
     parameters: z.object({ threadId: z.string().uuid() }),
     handler: async ({ threadId }) => {
+      if (!requiresToolConfirmation("delete_conversation"))
+        throw new Error("Delete conversation must require confirmation");
       if (threadId !== props.thread.id)
         return { error: "Use the conversation menu to delete another thread" };
       props.onDelete();
@@ -119,6 +207,28 @@ export function PracticeTools(props: Props) {
         status: "awaiting_user_action",
         message:
           "Delete action shown. The conversation has not yet been deleted.",
+      };
+    },
+  });
+  useFrontendTool({
+    name: "delete_attachment",
+    description:
+      "Request deletion of a draft file. This only opens a confirmation dialog; it never deletes immediately.",
+    parameters: z.object({ attachmentId: z.string().uuid() }),
+    handler: async ({ attachmentId }) => {
+      if (!requiresToolConfirmation("delete_attachment"))
+        throw new Error("Delete attachment must require confirmation");
+      const file = props.files.find((item) => item.id === attachmentId);
+      if (!file) return { error: "Attachment not found in this conversation" };
+      if (file.messageId)
+        return {
+          error:
+            "Saved attachments are removed with their conversation. Delete the conversation instead.",
+        };
+      props.onDeleteFile(file);
+      return {
+        status: "awaiting_user_confirmation",
+        message: "File deletion has not been performed.",
       };
     },
   });

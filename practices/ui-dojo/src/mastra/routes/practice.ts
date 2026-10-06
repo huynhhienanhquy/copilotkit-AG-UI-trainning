@@ -207,6 +207,35 @@ export const practiceRoutes = [
         );
       }),
   }),
+  registerApiRoute("/practice/threads/:id/messages/:messageId", {
+    method: "PATCH",
+    handler: (c) =>
+      practiceBoundary(async () => {
+        const threadId = idSchema.parse(c.req.param("id"));
+        const messageId = idSchema.parse(c.req.param("messageId"));
+        const input = z
+          .discriminatedUnion("action", [
+            z
+              .object({
+                action: z.literal("edit"),
+                text: z.string().trim().min(1).max(20_000),
+              })
+              .strict(),
+            z.object({ action: z.literal("regenerate") }).strict(),
+            z.object({ action: z.literal("retry_tool") }).strict(),
+          ])
+          .parse(await c.req.json());
+        const revised = await conversations.reviseTurn(
+          threadId,
+          messageId,
+          input,
+        );
+        await (
+          await getAttachments()
+        ).detachMessages(threadId, revised.deletedMessageIds);
+        return json({ items: restoreMessages(revised.messages) });
+      }),
+  }),
   registerApiRoute("/practice/films", {
     method: "GET",
     handler: () => practiceBoundary(async () => json(await getFilmCatalog())),
@@ -349,6 +378,7 @@ export const practiceRoutes = [
         const context = new RequestContext();
         context.set(MASTRA_RESOURCE_ID_KEY, PRACTICE_RESOURCE_ID);
         let release: (() => void) | undefined;
+        let runningThreadId: string | undefined;
         if (envelope.method === "agent/run") {
           const input = RunAgentInputSchema.parse(envelope.body);
           idSchema.parse(input.threadId);
@@ -375,6 +405,10 @@ export const practiceRoutes = [
             "open_conversation_search",
             "show_attachment",
             "delete_conversation",
+            "delete_attachment",
+            "update_conversation",
+            "add_watchlist_film",
+            "remove_watchlist_film",
           ]);
           envelope.body = {
             ...input,
@@ -384,6 +418,7 @@ export const practiceRoutes = [
             tools: input.tools.filter((tool) => frontendTools.has(tool.name)),
           };
           context.set(MASTRA_THREAD_ID_KEY, input.threadId);
+          runningThreadId = input.threadId;
           release = await conversations.beginRun(input.threadId);
         } else if (envelope.method === "agent/stop") {
           await conversations.requireThread(
@@ -394,9 +429,16 @@ export const practiceRoutes = [
           await conversations.requireThread(input.threadId);
         }
         let detachAbort = () => {};
-        const finish = () => {
-          release?.();
-          detachAbort();
+        const finish = async (interrupted = false) => {
+          try {
+            if (interrupted && runningThreadId)
+              await conversations.markLatestAssistantInterrupted(
+                runningThreadId,
+              );
+          } finally {
+            release?.();
+            detachAbort();
+          }
         };
         const runner = new PracticeRunner(finish);
         context.set("practiceAbortSignal", runner.controller.signal);
@@ -431,7 +473,7 @@ export const practiceRoutes = [
               body: JSON.stringify(envelope),
             }),
           );
-          if (!runner.started) finish();
+          if (!runner.started) void finish();
           if (!release || !response.body) return response;
           const reader = response.body.getReader();
           return new Response(
@@ -456,7 +498,7 @@ export const practiceRoutes = [
             { status: response.status, headers: response.headers },
           );
         } catch (error) {
-          if (!runner.started) finish();
+          if (!runner.started) void finish();
           throw error;
         }
       }),

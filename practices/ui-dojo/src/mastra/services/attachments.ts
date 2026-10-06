@@ -275,6 +275,18 @@ export class AttachmentService {
     return files.map((file) => ({ ...file, messageId }));
   }
 
+  /** Return files from discarded edited turns to the thread's reusable draft pool. */
+  async detachMessages(threadId: string, messageIds: string[]): Promise<void> {
+    if (!messageIds.length) return;
+    await this.database.batch(
+      messageIds.map((messageId) => ({
+        sql: "UPDATE practice_attachments SET message_id = NULL WHERE resource_id = ? AND thread_id = ? AND message_id = ?",
+        args: [this.resourceId, threadId, messageId],
+      })),
+      "write",
+    );
+  }
+
   /** Read bytes for preview/download only after resolving owned metadata. */
   async read(id: string): Promise<{ attachment: Attachment; buffer: Buffer }> {
     const attachment = toAttachment(await this.row(id));

@@ -35,7 +35,9 @@
 - 2026-10-05: auto-title now uses the recommended OpenAI Responses API with bounded, non-stored requests; retry, pre-existing rename and provider-failure behavior have explicit regression coverage.
 - 2026-10-05: runtime diagnosis found that the original 64-token Responses budget could be consumed by `gpt-5-mini` reasoning and produce empty `output_text`. The title request now uses low reasoning and a 256-token cap, verified against the configured provider.
 - 2026-10-05: the suite passes 23 tests across 7 files, including citation validation/page boundaries, auto-title idempotency/manual-rename races/failure isolation and deterministic optimistic cache transformations; typecheck, scoped lint and the Vite production build pass.
-- All A01–A23 acceptance scenarios verified with automated tests and/or browser evidence.
+- 2026-10-05: added durable message actions for edit/resend, regenerate, copy, retry failed tools and persisted `Interrupted` responses. Timeline revisions are serialized per thread, discard stale descendants, preserve attachment references and rehydrate canonical history before rerunning the agent.
+- 2026-10-06: centralized tool risk policy for Ghibli Workspace. Harmless UI/read tools run immediately, conversation/watchlist mutations run through frontend-controlled Undo, and conversation/file deletion only opens explicit confirmation. Unknown mutation-shaped tools fail closed.
+- All A01–A25 acceptance scenarios verified with automated tests and/or browser evidence.
 - Windows test cleanup now occurs in a parent process after workers exit; this fixed LibSQL native file locks without skipping assertions or deleting shared/user data.
 
 ## Migration/recovery boundary

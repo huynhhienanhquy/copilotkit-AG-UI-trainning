@@ -199,6 +199,183 @@ describe("durable conversation lifecycle", () => {
     });
   });
 
+  it("edits a user turn, preserves file references and removes stale descendants", async () => {
+    const thread = await service.create();
+    await memory.saveMessages({
+      messages: [
+        {
+          id: "user-edit",
+          threadId: thread.id,
+          resourceId: "test-user",
+          role: "user",
+          createdAt: new Date("2026-10-05T10:00:00Z"),
+          content: {
+            format: 2,
+            parts: [
+              {
+                type: "text",
+                text: "Old question\n\nAttached files:\nnotes.pdf (attachment ID: file-1)",
+              },
+            ],
+          },
+        },
+        {
+          id: "assistant-stale",
+          threadId: thread.id,
+          resourceId: "test-user",
+          role: "assistant",
+          createdAt: new Date("2026-10-05T10:00:01Z"),
+          content: {
+            format: 2,
+            parts: [{ type: "text", text: "Stale answer" }],
+          },
+        },
+        {
+          id: "user-stale",
+          threadId: thread.id,
+          resourceId: "test-user",
+          role: "user",
+          createdAt: new Date("2026-10-05T10:00:02Z"),
+          content: {
+            format: 2,
+            parts: [{ type: "text", text: "Stale follow-up" }],
+          },
+        },
+      ],
+    });
+
+    const revised = await service.reviseTurn(thread.id, "user-edit", {
+      action: "edit",
+      text: "New question",
+    });
+
+    expect(revised.deletedMessageIds).toEqual([
+      "assistant-stale",
+      "user-stale",
+    ]);
+    expect(revised.messages).toHaveLength(1);
+    expect(revised.messages[0].content.parts).toEqual([
+      {
+        type: "text",
+        text: "New question\n\nAttached files:\nnotes.pdf (attachment ID: file-1)",
+      },
+    ]);
+  });
+
+  it("regenerates responses, retries only failed tools and persists interrupted state", async () => {
+    const thread = await service.create();
+    await memory.saveMessages({
+      messages: [
+        {
+          id: "user-tool",
+          threadId: thread.id,
+          resourceId: "test-user",
+          role: "user",
+          createdAt: new Date("2026-10-05T11:00:00Z"),
+          content: {
+            format: 2,
+            parts: [{ type: "text", text: "Change theme" }],
+          },
+        },
+        {
+          id: "assistant-failed",
+          threadId: thread.id,
+          resourceId: "test-user",
+          role: "assistant",
+          createdAt: new Date("2026-10-05T11:00:01Z"),
+          content: {
+            format: 2,
+            parts: [
+              { type: "text", text: "Trying" },
+              {
+                type: "tool-invocation",
+                toolInvocation: {
+                  state: "call",
+                  toolCallId: "failed-call",
+                  toolName: "set_theme",
+                  args: { mode: "dark" },
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const retried = await service.reviseTurn(thread.id, "assistant-failed", {
+      action: "retry_tool",
+    });
+    expect(retried.messages.map((message) => message.id)).toEqual([
+      "user-tool",
+    ]);
+
+    await memory.saveMessages({
+      messages: [
+        {
+          id: "assistant-partial",
+          threadId: thread.id,
+          resourceId: "test-user",
+          role: "assistant",
+          createdAt: new Date("2026-10-05T11:00:02Z"),
+          content: {
+            format: 2,
+            parts: [{ type: "text", text: "Partial answer" }],
+          },
+        },
+      ],
+    });
+    await service.markLatestAssistantInterrupted(thread.id);
+    const history = await service.messages(thread.id);
+    expect(restoreMessages(history.messages).at(-1)).toMatchObject({
+      id: "assistant-partial",
+      role: "assistant",
+      name: "interrupted",
+    });
+
+    const regenerated = await service.reviseTurn(
+      thread.id,
+      "assistant-partial",
+      { action: "regenerate" },
+    );
+    expect(regenerated.messages.map((message) => message.id)).toEqual([
+      "user-tool",
+    ]);
+
+    await memory.saveMessages({
+      messages: [
+        {
+          id: "assistant-complete",
+          threadId: thread.id,
+          resourceId: "test-user",
+          role: "assistant",
+          createdAt: new Date("2026-10-05T11:00:03Z"),
+          content: {
+            format: 2,
+            parts: [{ type: "text", text: "Completed answer" }],
+          },
+        },
+        {
+          id: "user-stopped-before-output",
+          threadId: thread.id,
+          resourceId: "test-user",
+          role: "user",
+          createdAt: new Date("2026-10-05T11:00:04Z"),
+          content: {
+            format: 2,
+            parts: [{ type: "text", text: "New question" }],
+          },
+        },
+      ],
+    });
+    await service.markLatestAssistantInterrupted(thread.id);
+    const stoppedBeforeOutput = await service.messages(thread.id);
+    expect(
+      stoppedBeforeOutput.messages.find(
+        (message) => message.id === "assistant-complete",
+      )?.content.metadata,
+    ).toBeUndefined();
+  });
+
   it("restores text and completed tool results and searches beyond the first message page", async () => {
     const thread = await service.create();
     const messages = Array.from({ length: 61 }, (_, index) => ({

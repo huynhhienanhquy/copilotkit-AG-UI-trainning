@@ -39,6 +39,27 @@ Status: **accepted**. All features implemented and verified through automated te
 - Archive, restore, pin, unpin, watchlist add and watchlist remove update their React Query caches before the API response.
 - Failed requests restore the pre-mutation cache; successful archive, pin and watchlist removal actions expose a seven-second persistent Undo mutation.
 
+## Message actions verified on 2026-10-05
+
+- `npm test`: 8 files, 27 tests passed. New coverage verifies editable text extraction, failed-tool detection, descendant cleanup, attachment-reference preservation, regenerate/retry semantics and persisted interrupted status.
+- `npm run typecheck`: passed.
+- Scoped ESLint over `src` and `scripts`: passed. Full-repository lint still includes the pre-existing untracked `codex-agent-kit` example and reports its unused `handler` variable.
+- Vite production build: passed; existing browser-externalization and large-chunk warnings remain.
+- Backend build verification is pending a rerun after the Windows process holding `.mastra/output/node_modules` releases its file lock; the attempted build stopped at `EPERM` while reading the old generated `ajv-formats/package.json`.
+- Edit/resend and regenerate replace stale persisted descendants before running the agent again; retry is available only for failed or incomplete tool invocations.
+- Copy response uses the CopilotKit assistant toolbar, and stopped responses display an `Interrupted` terminal state that survives reload when a partial assistant message exists.
+
+## Tool approval by risk verified on 2026-10-06
+
+- Central policy classifies no-confirmation, undoable and confirmation-required tools; unknown mutation-shaped tools default to confirmation.
+- Theme/sidebar/search continue to execute immediately.
+- Agent-triggered pin/archive/watchlist mutations now use frontend-controlled REST mutations and expose persistent Undo actions.
+- Delete conversation and delete draft file tool calls only open an explicit confirmation dialog; no DELETE request occurs before user confirmation.
+- Saved attachments remain protected from standalone deletion to preserve message and citation integrity.
+- `npm test`: 9 files, 30 tests passed; new deterministic tests cover all three risk levels and fail-closed unknown mutations.
+- `npm run typecheck`, scoped ESLint over `src`/`scripts`, and Vite production build: passed. Existing browser-externalization and large-chunk warnings remain.
+- Mastra bundle rerun remains blocked by the existing Windows file lock in generated `.mastra/output/node_modules` (`EPERM` in `ajv`); no source or persisted practice data is involved.
+
 ## Acceptance matrix
 
 | ID  | Status | Evidence                                                                                                                             |
@@ -66,6 +87,8 @@ Status: **accepted**. All features implemented and verified through automated te
 | A21 | ✅     | Page-aware extraction chunks return attachment/page/range provenance; citation click opens and highlights the exact owned source     |
 | A22 | ✅     | First-message title generation is idempotent and atomic; concurrent manual rename is never overwritten                               |
 | A23 | ✅     | Archive, pin and watchlist removal update optimistically; failures rollback snapshots and successful actions support persistent Undo |
+| A24 | ✅     | Edit/resend, regenerate, copy, failed-tool retry and persisted interrupted response state                                            |
+| A25 | ✅     | Risk-based tool policy: immediate safe tools, reversible mutations with Undo, destructive actions behind confirmation                |
 
 ## Runtime decisions
 

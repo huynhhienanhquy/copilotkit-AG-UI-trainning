@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Memory } from "@mastra/memory";
 import type { StorageThreadType } from "@mastra/core/memory";
+import type { MastraDBMessage } from "@mastra/core/agent";
 import type {
   Conversation,
   ListQuery,
@@ -194,6 +195,141 @@ export class ConversationService {
           new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       ),
     };
+  }
+
+  /** Load the complete canonical timeline for destructive turn revisions. */
+  private async allMessages(id: string): Promise<MastraDBMessage[]> {
+    const messages: MastraDBMessage[] = [];
+    let page = 0;
+    for (;;) {
+      const result = await this.memory.recall({
+        threadId: id,
+        resourceId: this.resourceId,
+        page: page++,
+        perPage: 100,
+        orderBy: { field: "createdAt", direction: "ASC" },
+      });
+      messages.push(...result.messages);
+      if (!result.hasMore) break;
+    }
+    return messages.sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+  }
+
+  /**
+   * Replace or replay a turn and discard its stale descendants. Re-running from
+   * the preceding user turn also makes a failed tool call safe to retry once.
+   */
+  async reviseTurn(
+    threadId: string,
+    messageId: string,
+    input:
+      | { action: "edit"; text: string }
+      | { action: "regenerate" | "retry_tool" },
+  ): Promise<{ messages: MastraDBMessage[]; deletedMessageIds: string[] }> {
+    return this.writeToThread(threadId, async () => {
+      const messages = await this.allMessages(threadId);
+      const index = messages.findIndex((message) => message.id === messageId);
+      const target = messages[index];
+      if (!target)
+        throw new PracticeError("not_found", "Message not found", 404);
+
+      let deleteFrom = index;
+      if (input.action === "edit") {
+        if (target.role !== "user")
+          throw new PracticeError(
+            "invalid_message",
+            "Only user messages can be edited",
+          );
+        const previousText = target.content.parts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
+        const attachmentIndex = previousText.indexOf("\n\nAttached files:\n");
+        const references =
+          attachmentIndex >= 0 ? previousText.slice(attachmentIndex) : "";
+        await this.memory.updateMessages({
+          messages: [
+            {
+              id: target.id,
+              content: {
+                ...target.content,
+                parts: [{ type: "text", text: input.text + references }],
+              },
+            },
+          ],
+        });
+        deleteFrom = index + 1;
+      } else {
+        if (target.role !== "assistant")
+          throw new PracticeError(
+            "invalid_message",
+            "Choose an assistant response to run again",
+          );
+        if (
+          input.action === "retry_tool" &&
+          !target.content.parts.some(
+            (part) =>
+              part.type === "tool-invocation" &&
+              (part.toolInvocation.state !== "result" ||
+                Boolean(part.toolInvocation.errorText) ||
+                (typeof part.toolInvocation.result === "object" &&
+                  part.toolInvocation.result !== null &&
+                  "error" in part.toolInvocation.result)),
+          )
+        )
+          throw new PracticeError(
+            "tool_not_failed",
+            "This response has no failed tool call to retry",
+            409,
+          );
+      }
+
+      const deletedMessageIds = messages
+        .slice(deleteFrom)
+        .map((message) => message.id);
+      if (deletedMessageIds.length)
+        await this.memory.deleteMessages(deletedMessageIds);
+      return {
+        messages: await this.allMessages(threadId),
+        deletedMessageIds,
+      };
+    });
+  }
+
+  /** Persist an aborted response marker so refreshes retain its terminal state. */
+  async markLatestAssistantInterrupted(threadId: string): Promise<void> {
+    await this.exclusive(threadId, async () => {
+      await this.requireThread(threadId);
+      const messages = await this.allMessages(threadId);
+      let latestUserIndex = -1;
+      for (let index = messages.length - 1; index >= 0; index--) {
+        if (messages[index].role === "user") {
+          latestUserIndex = index;
+          break;
+        }
+      }
+      const latest = [...messages.slice(latestUserIndex + 1)]
+        .reverse()
+        .find((message) => message.role === "assistant");
+      if (!latest) return;
+      await this.memory.updateMessages({
+        messages: [
+          {
+            id: latest.id,
+            content: {
+              ...latest.content,
+              metadata: {
+                ...latest.content.metadata,
+                practiceStatus: "interrupted",
+              },
+            },
+          },
+        ],
+      });
+    });
   }
 
   /** Search all persisted text, paging the storage scan instead of only filtering loaded UI data. */

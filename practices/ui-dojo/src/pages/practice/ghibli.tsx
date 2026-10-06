@@ -60,6 +60,7 @@ type ConversationMutationVariables = {
 
 type ConversationMutationContext = {
   snapshot: [QueryKey, unknown][];
+  previous?: Conversation;
 };
 
 function findCachedConversation(client: QueryClient, id: string) {
@@ -169,9 +170,9 @@ export function GhibliPracticePage() {
           optimisticConversation(previous, patch, new Date().toISOString()),
         );
       }
-      return { snapshot };
+      return { snapshot, previous };
     },
-    onSuccess: (saved, { id, patch, announce = true }) => {
+    onSuccess: (saved, { id, patch, announce = true }, context) => {
       writeConversationCaches(client, saved);
       if (!announce) return;
       if (patch.archived !== undefined) {
@@ -198,6 +199,21 @@ export function GhibliPracticePage() {
             await runConversationMutation.current({
               id,
               patch: { pinned: !patch.pinned },
+              announce: false,
+            });
+          },
+        });
+      } else if (
+        patch.title !== undefined &&
+        context?.previous?.title !== undefined
+      ) {
+        undoToast.showUndo({
+          message: "Conversation renamed",
+          onUndo: async () => {
+            if (!runConversationMutation.current) return;
+            await runConversationMutation.current({
+              id,
+              patch: { title: context.previous?.title },
               announce: false,
             });
           },
@@ -450,6 +466,10 @@ export function GhibliPracticePage() {
                 onWatchlist={() => setWatchlistOpen(true)}
                 onDelete={() => setDeleting(thread.data)}
                 onBusy={reportBusy}
+                onUpdateConversation={(id, patch) =>
+                  mutation.mutateAsync({ id, patch })
+                }
+                showUndo={undoToast.showUndo}
               />
             </CopilotKit>
           )}
