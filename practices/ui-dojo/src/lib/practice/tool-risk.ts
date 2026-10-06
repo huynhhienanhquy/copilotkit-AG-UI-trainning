@@ -4,6 +4,7 @@ export type ToolRiskLevel =
   | "confirmation_required";
 
 const PRACTICE_TOOL_RISK: Readonly<Record<string, ToolRiskLevel>> = {
+  present_plan: "no_confirmation",
   set_theme: "no_confirmation",
   set_conversation_sidebar: "no_confirmation",
   open_conversation_search: "no_confirmation",

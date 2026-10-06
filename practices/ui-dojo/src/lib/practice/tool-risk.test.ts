@@ -3,6 +3,7 @@ import { practiceToolRisk, requiresToolConfirmation } from "./tool-risk";
 
 describe("practice tool risk policy", () => {
   it("runs harmless display tools without confirmation", () => {
+    expect(practiceToolRisk("present_plan")).toBe("no_confirmation");
     expect(practiceToolRisk("set_theme")).toBe("no_confirmation");
     expect(practiceToolRisk("set_conversation_sidebar")).toBe(
       "no_confirmation",

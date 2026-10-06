@@ -20,9 +20,11 @@ import type {
 } from "@/lib/practice/contracts";
 import { threadPatchSchema } from "@/lib/practice/contracts";
 import { practiceApi } from "@/lib/practice/api";
+import { planningTimelineSchema } from "@/lib/practice/planning";
 import { requiresToolConfirmation } from "@/lib/practice/tool-risk";
 import type { UndoToastRequest } from "./undo-toast";
 import { ConversationSearchCard } from "./conversation-search-card";
+import { PlanningTimeline } from "./planning-timeline";
 
 type Props = {
   thread: Conversation;
@@ -103,6 +105,23 @@ export function PracticeTools(props: Props) {
       sidebarExpanded: props.expanded,
       attachments: props.files.map(({ id, filename }) => ({ id, filename })),
     },
+  });
+  useFrontendTool({
+    name: "present_plan",
+    description:
+      "Display one concise execution plan before a request that needs two or more distinct actions. Provide only user-visible action labels. Never include reasoning, hidden analysis, alternatives, or chain-of-thought. Skip this tool for a single action or a simple answer.",
+    parameters: planningTimelineSchema,
+    handler: async ({ steps }) => ({
+      status: "presented",
+      stepCount: steps.length,
+    }),
+    render: ({ args, status }) => (
+      <PlanningTimeline
+        title={args.title}
+        steps={args.steps}
+        complete={status === "complete"}
+      />
+    ),
   });
   useFrontendTool({
     name: "set_theme",

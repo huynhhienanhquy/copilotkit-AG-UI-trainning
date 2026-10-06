@@ -60,6 +60,16 @@ Status: **accepted**. All features implemented and verified through automated te
 - `npm run typecheck`, scoped ESLint over `src`/`scripts`, and Vite production build: passed. Existing browser-externalization and large-chunk warnings remain.
 - Mastra bundle rerun remains blocked by the existing Windows file lock in generated `.mastra/output/node_modules` (`EPERM` in `ajv`); no source or persisted practice data is involved.
 
+## Agent planning timeline verified on 2026-10-06
+
+- Multi-step requests can invoke the `present_plan` frontend tool before actions begin; simple answers and single actions skip it.
+- The UI renders an accessible, ordered 2–6 step timeline with streaming and ready states.
+- The strict public-plan schema accepts only a title and concise action labels; reasoning/analysis fields are rejected and model reasoning events are never rendered into the timeline.
+- Restored plan tool calls render from persisted arguments without rerunning the handler.
+- `npm test`: 10 files, 33 tests passed. New coverage verifies valid public plans, multi-step bounds and rejection of reasoning payloads.
+- `npm run typecheck`, scoped ESLint over `src`/`scripts`, and Vite production build: passed. Existing browser-externalization and large-chunk warnings remain.
+- Mastra bundle remains blocked by the existing Windows lock in generated `.mastra/output/node_modules` (`EPERM` in `ajv`); source typecheck is unaffected.
+
 ## Acceptance matrix
 
 | ID  | Status | Evidence                                                                                                                             |
@@ -89,6 +99,7 @@ Status: **accepted**. All features implemented and verified through automated te
 | A23 | ✅     | Archive, pin and watchlist removal update optimistically; failures rollback snapshots and successful actions support persistent Undo |
 | A24 | ✅     | Edit/resend, regenerate, copy, failed-tool retry and persisted interrupted response state                                            |
 | A25 | ✅     | Risk-based tool policy: immediate safe tools, reversible mutations with Undo, destructive actions behind confirmation                |
+| A26 | ✅     | Multi-step requests show a bounded public action timeline without exposing model chain-of-thought                                    |
 
 ## Runtime decisions
 

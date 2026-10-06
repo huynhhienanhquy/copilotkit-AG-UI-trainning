@@ -400,6 +400,7 @@ export const practiceRoutes = [
               "This practice does not accept workflow resume commands",
             );
           const frontendTools = new Set([
+            "present_plan",
             "set_theme",
             "set_conversation_sidebar",
             "open_conversation_search",

@@ -12,6 +12,7 @@ Folder này ghi lại các cải tiến được bổ sung sau implementation ba
 | 2026-10-05 | Optimistic updates and Undo  | Hoàn thành | [2026-10-05-optimistic-updates-and-undo.md](2026-10-05-optimistic-updates-and-undo.md)   |
 | 2026-10-05 | Message actions              | Hoàn thành | [2026-10-05-message-actions.md](2026-10-05-message-actions.md)                           |
 | 2026-10-06 | Tool approval by risk level  | Hoàn thành | [2026-10-06-tool-approval-by-risk.md](2026-10-06-tool-approval-by-risk.md)               |
+| 2026-10-06 | Agent planning timeline      | Hoàn thành | [2026-10-06-agent-planning-timeline.md](2026-10-06-agent-planning-timeline.md)           |
 
 ## Quy ước tài liệu
 
