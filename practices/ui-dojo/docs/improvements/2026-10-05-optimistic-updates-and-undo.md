@@ -135,5 +135,5 @@ npm run vite:build              passed (existing bundle-size warnings)
 - UI giữ một toast Undo tại một thời điểm; action mới thay action cũ.
 - Undo hết hạn sau 7 giây nhưng action gốc vẫn được lưu bình thường.
 - Delete conversation không có Undo vì đây là destructive flow riêng có confirmation và cleanup message/file.
-- Agent tool có thể cập nhật pin/archive/watchlist trên server; toast Undo hiện chỉ áp dụng cho thao tác trực tiếp từ UI.
+- Agent-requested watchlist writes hiện dừng ở approval trước API call và vẫn cung cấp Undo sau khi approved mutation thành công.
 - Search result được refetch thay vì optimistic rewrite để không giả lập ranking/snippet ở client.

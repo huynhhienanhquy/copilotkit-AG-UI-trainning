@@ -93,8 +93,8 @@ export function WatchlistPanel({
         <DialogHeader>
           <DialogTitle>Your Ghibli watchlist</DialogTitle>
           <DialogDescription>
-            Saved across all your conversations. Ask the agent to add or remove
-            films, or use the controls below.
+            Saved across all your conversations. Agent-requested changes require
+            your approval; the controls below are direct actions.
           </DialogDescription>
         </DialogHeader>
         {list.isPending && <p role="status">Loading watchlist…</p>}

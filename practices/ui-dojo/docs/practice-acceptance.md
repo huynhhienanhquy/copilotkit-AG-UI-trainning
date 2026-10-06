@@ -45,7 +45,7 @@ Status: **accepted**. All features implemented and verified through automated te
 - `npm run typecheck`: passed.
 - Scoped ESLint over `src` and `scripts`: passed. Full-repository lint still includes the pre-existing untracked `codex-agent-kit` example and reports its unused `handler` variable.
 - Vite production build: passed; existing browser-externalization and large-chunk warnings remain.
-- Backend build verification is pending a rerun after the Windows process holding `.mastra/output/node_modules` releases its file lock; the attempted build stopped at `EPERM` while reading the old generated `ajv-formats/package.json`.
+- Final `npm run mastra:build` rerun passed, including bundling and generated output dependency installation.
 - Edit/resend and regenerate replace stale persisted descendants before running the agent again; retry is available only for failed or incomplete tool invocations.
 - Copy response uses the CopilotKit assistant toolbar, and stopped responses display an `Interrupted` terminal state that survives reload when a partial assistant message exists.
 
@@ -53,12 +53,13 @@ Status: **accepted**. All features implemented and verified through automated te
 
 - Central policy classifies no-confirmation, undoable and confirmation-required tools; unknown mutation-shaped tools default to confirmation.
 - Theme/sidebar/search continue to execute immediately.
-- Agent-triggered pin/archive/watchlist mutations now use frontend-controlled REST mutations and expose persistent Undo actions.
+- Agent-triggered pin/archive mutations use frontend-controlled REST mutations and expose persistent Undo actions.
+- Agent-requested watchlist add/remove operations now pause in native human-in-the-loop approval; no REST mutation occurs before Approve, and Decline makes no changes.
 - Delete conversation and delete draft file tool calls only open an explicit confirmation dialog; no DELETE request occurs before user confirmation.
 - Saved attachments remain protected from standalone deletion to preserve message and citation integrity.
-- `npm test`: 9 files, 30 tests passed; new deterministic tests cover all three risk levels and fail-closed unknown mutations.
+- `npm test`: 11 files, 37 tests passed; deterministic tests cover all risk levels, fail-closed mutations and watchlist approval UI behavior.
 - `npm run typecheck`, scoped ESLint over `src`/`scripts`, and Vite production build: passed. Existing browser-externalization and large-chunk warnings remain.
-- Mastra bundle rerun remains blocked by the existing Windows file lock in generated `.mastra/output/node_modules` (`EPERM` in `ajv`); no source or persisted practice data is involved.
+- Final Mastra bundle rerun passed after the old generated-output lock cleared.
 
 ## Agent planning timeline verified on 2026-10-06
 
@@ -68,7 +69,16 @@ Status: **accepted**. All features implemented and verified through automated te
 - Restored plan tool calls render from persisted arguments without rerunning the handler.
 - `npm test`: 10 files, 33 tests passed. New coverage verifies valid public plans, multi-step bounds and rejection of reasoning payloads.
 - `npm run typecheck`, scoped ESLint over `src`/`scripts`, and Vite production build: passed. Existing browser-externalization and large-chunk warnings remain.
-- Mastra bundle remains blocked by the existing Windows lock in generated `.mastra/output/node_modules` (`EPERM` in `ajv`); source typecheck is unaffected.
+- Final Mastra bundle rerun passed after the old generated-output lock cleared.
+
+## Watchlist write approval verified on 2026-10-06
+
+- `add_watchlist_film` and `remove_watchlist_film` are native human-in-the-loop frontend tools, not immediate handlers.
+- PUT/DELETE callbacks exist only behind the card's Approve action; Decline returns an explicit rejected result without changing watchlist data.
+- The card displays the catalog title and exact film UUID, handles request/error/completed states and restores the persisted approval outcome.
+- Add, update, delete and remove watchlist tool names are all classified `confirmation_required`; update requests use separately approved add/remove operations because watchlist items have no editable fields.
+- UI controls in the watchlist panel remain direct user-authorized actions.
+- `npm test`: 11 files, 37 tests passed; typecheck, scoped ESLint, Vite build and Mastra build passed.
 
 ## Acceptance matrix
 
@@ -98,8 +108,9 @@ Status: **accepted**. All features implemented and verified through automated te
 | A22 | ✅     | First-message title generation is idempotent and atomic; concurrent manual rename is never overwritten                               |
 | A23 | ✅     | Archive, pin and watchlist removal update optimistically; failures rollback snapshots and successful actions support persistent Undo |
 | A24 | ✅     | Edit/resend, regenerate, copy, failed-tool retry and persisted interrupted response state                                            |
-| A25 | ✅     | Risk-based tool policy: immediate safe tools, reversible mutations with Undo, destructive actions behind confirmation                |
+| A25 | ✅     | Risk-based tool policy: immediate safe tools, reversible conversation mutations with Undo, watchlist/destructive writes approved     |
 | A26 | ✅     | Multi-step requests show a bounded public action timeline without exposing model chain-of-thought                                    |
+| A27 | ✅     | Agent watchlist add/update/delete requests cannot mutate data before explicit Approve; Decline leaves data unchanged                 |
 
 ## Runtime decisions
 

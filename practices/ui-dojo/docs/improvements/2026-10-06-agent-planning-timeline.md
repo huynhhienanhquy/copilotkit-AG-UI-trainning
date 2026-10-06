@@ -71,7 +71,7 @@ npm run vite:build        passed
 
 Vite vẫn báo các warning đã có trước về Node modules được browser-externalize và bundle chunks lớn; không có build error mới.
 
-`npm run mastra:build` vẫn bị Windows giữ lock trong generated `.mastra/output/node_modules` (`EPERM` tại package `ajv`), giống lần kiểm tra task trước. Source frontend/backend đã qua project typecheck; lỗi không nằm trong source hoặc practice data.
+`npm run mastra:build` đã pass trong final rerun, gồm bundling và output dependency installation. Build script bỏ qua package-lock generation trên Windows theo behavior hiện có.
 
 ## 8. Manual acceptance scenario
 

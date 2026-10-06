@@ -198,8 +198,8 @@ Archived conversation vẫn đọc được nhưng không nhận message, file h
 | `ghibli-films`          | Lấy danh sách/thông tin phim từ Ghibli API                                                                       |
 | `ghibli-characters`     | Lấy thông tin nhân vật                                                                                           |
 | `list_watchlist`        | Đọc watchlist hiện tại                                                                                           |
-| `add_watchlist_film`    | Thêm phim bằng UUID có thật trong catalog                                                                        |
-| `remove_watchlist_film` | Xóa phim khỏi watchlist                                                                                          |
+| `add_watchlist_film`    | Yêu cầu approval, rồi mới thêm phim bằng UUID có thật trong catalog                                              |
+| `remove_watchlist_film` | Yêu cầu approval, rồi mới xóa phim khỏi watchlist                                                                |
 | `find_conversations`    | Hybrid semantic/full-text search với date, attachment và archive filters; kết quả render thành interactive cards |
 | `update_conversation`   | Rename, archive/unarchive, pin/unpin                                                                             |
 | `extract_attachment`    | Trích xuất text của attachment theo từng chunk                                                                   |

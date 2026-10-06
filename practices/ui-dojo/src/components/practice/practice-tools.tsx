@@ -2,6 +2,7 @@ import {
   useAgentContext,
   useDefaultRenderTool,
   useFrontendTool,
+  useHumanInTheLoop,
   useRenderTool,
 } from "@copilotkit/react-core/v2";
 import { useQueryClient } from "@tanstack/react-query";
@@ -25,6 +26,19 @@ import { requiresToolConfirmation } from "@/lib/practice/tool-risk";
 import type { UndoToastRequest } from "./undo-toast";
 import { ConversationSearchCard } from "./conversation-search-card";
 import { PlanningTimeline } from "./planning-timeline";
+import { WatchlistApprovalCard } from "./watchlist-approval-card";
+
+const watchlistApprovalSchema = z
+  .object({
+    filmId: z.string().uuid(),
+    filmTitle: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .describe("Catalog title shown to the user for approval."),
+  })
+  .strict();
 
 type Props = {
   thread: Conversation;
@@ -197,19 +211,83 @@ export function PracticeTools(props: Props) {
     handler: async ({ threadId, patch }) =>
       props.onUpdateConversation(threadId, patch),
   });
-  useFrontendTool({
+  useHumanInTheLoop({
     name: "add_watchlist_film",
     description:
-      "Add a real Ghibli film UUID to the watchlist. This action is reversible and the UI offers Undo.",
-    parameters: z.object({ filmId: z.string().uuid() }),
-    handler: async ({ filmId }) => addWatchlistFilm(filmId),
+      "Request approval to add a real Ghibli film to the watchlist. Always provide the exact catalog title. The UI will not change data until the user approves.",
+    parameters: watchlistApprovalSchema,
+    render: (tool) => {
+      if (tool.status === "executing") {
+        const { args, respond } = tool;
+        return (
+          <WatchlistApprovalCard
+            action="add"
+            filmId={args.filmId}
+            filmTitle={args.filmTitle}
+            status={tool.status}
+            onApprove={async () => {
+              const result = await addWatchlistFilm(args.filmId);
+              await respond({ approved: true, action: "add", result });
+            }}
+            onDecline={() =>
+              respond({
+                approved: false,
+                action: "add",
+                message: "The user declined the watchlist change.",
+              })
+            }
+          />
+        );
+      }
+      return (
+        <WatchlistApprovalCard
+          action="add"
+          filmId={tool.args.filmId}
+          filmTitle={tool.args.filmTitle}
+          status={tool.status}
+          result={tool.result}
+        />
+      );
+    },
   });
-  useFrontendTool({
+  useHumanInTheLoop({
     name: "remove_watchlist_film",
     description:
-      "Remove a film UUID from the watchlist. This action is reversible and the UI offers Undo.",
-    parameters: z.object({ filmId: z.string().uuid() }),
-    handler: async ({ filmId }) => removeWatchlistFilm(filmId),
+      "Request approval to remove a film from the watchlist. Always provide the exact saved title. The UI will not change data until the user approves.",
+    parameters: watchlistApprovalSchema,
+    render: (tool) => {
+      if (tool.status === "executing") {
+        const { args, respond } = tool;
+        return (
+          <WatchlistApprovalCard
+            action="remove"
+            filmId={args.filmId}
+            filmTitle={args.filmTitle}
+            status={tool.status}
+            onApprove={async () => {
+              const result = await removeWatchlistFilm(args.filmId);
+              await respond({ approved: true, action: "remove", result });
+            }}
+            onDecline={() =>
+              respond({
+                approved: false,
+                action: "remove",
+                message: "The user declined the watchlist change.",
+              })
+            }
+          />
+        );
+      }
+      return (
+        <WatchlistApprovalCard
+          action="remove"
+          filmId={tool.args.filmId}
+          filmTitle={tool.args.filmTitle}
+          status={tool.status}
+          result={tool.result}
+        />
+      );
+    },
   });
   useFrontendTool({
     name: "delete_conversation",

@@ -13,10 +13,8 @@ describe("practice tool risk policy", () => {
     );
   });
 
-  it("marks reversible conversation and watchlist mutations as undoable", () => {
+  it("marks reversible conversation mutations as undoable", () => {
     expect(practiceToolRisk("update_conversation")).toBe("undoable");
-    expect(practiceToolRisk("add_watchlist_film")).toBe("undoable");
-    expect(practiceToolRisk("remove_watchlist_film")).toBe("undoable");
   });
 
   it("requires confirmation for destructive and unknown mutation tools", () => {
@@ -24,5 +22,12 @@ describe("practice tool risk policy", () => {
     expect(requiresToolConfirmation("delete_attachment")).toBe(true);
     expect(requiresToolConfirmation("add_external_item")).toBe(true);
     expect(requiresToolConfirmation("delete_unknown_resource")).toBe(true);
+  });
+
+  it("requires approval for every watchlist write operation", () => {
+    expect(requiresToolConfirmation("add_watchlist_film")).toBe(true);
+    expect(requiresToolConfirmation("remove_watchlist_film")).toBe(true);
+    expect(requiresToolConfirmation("update_watchlist_film")).toBe(true);
+    expect(requiresToolConfirmation("delete_watchlist_film")).toBe(true);
   });
 });

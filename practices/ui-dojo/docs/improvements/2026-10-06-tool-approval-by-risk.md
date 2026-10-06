@@ -10,11 +10,11 @@ Ghibli Workspace có cả tool chỉ thay đổi giao diện, mutation có thể
 
 ## 2. Yêu cầu
 
-| Risk level            | Tool/action                                                                | Hành vi                                    |
-| --------------------- | -------------------------------------------------------------------------- | ------------------------------------------ |
-| No confirmation       | Theme, sidebar, search và read-only tools                                  | Chạy ngay                                  |
-| Undoable              | Pin/unpin, archive/restore, watchlist add/remove                           | Chạy ngay và hiển thị Undo                 |
-| Confirmation required | Delete conversation, delete file và mutation nguy hiểm chưa được phân loại | Chỉ mở confirmation; chưa thay đổi dữ liệu |
+| Risk level            | Tool/action                                                                | Hành vi                                     |
+| --------------------- | -------------------------------------------------------------------------- | ------------------------------------------- |
+| No confirmation       | Theme, sidebar, search và read-only tools                                  | Chạy ngay                                   |
+| Undoable              | Rename, pin/unpin, archive/restore conversation                            | Chạy ngay và hiển thị Undo                  |
+| Confirmation required | Watchlist writes, delete conversation/file và mutation chưa được phân loại | Chờ người dùng duyệt; chưa thay đổi dữ liệu |
 
 Policy phải áp dụng cho tool do agent gọi, không chỉ các button người dùng bấm trực tiếp.
 
@@ -47,7 +47,7 @@ Handler được thực thi ngay và trả tool result cho agent như trước.
 
 ## 5. Undoable tools
 
-`update_conversation`, `add_watchlist_film` và `remove_watchlist_film` được đăng ký thành frontend tools. REST API vẫn là canonical persistence boundary, nhưng frontend sở hữu transaction UX:
+`update_conversation` được đăng ký thành frontend tool. REST API vẫn là canonical persistence boundary, nhưng frontend sở hữu transaction UX:
 
 1. agent gọi tool;
 2. frontend gọi validated REST endpoint;
@@ -55,14 +55,15 @@ Handler được thực thi ngay và trả tool result cho agent như trước.
 4. Undo toast xuất hiện sau mutation thành công;
 5. Undo gọi mutation ngược qua API, không chỉ sửa cache cục bộ.
 
-Rename/pin/archive dùng chung conversation mutation pipeline hiện có, gồm optimistic cache update, rollback và inverse mutation. Watchlist tool tạo Undo tương ứng:
+Rename/pin/archive dùng chung conversation mutation pipeline hiện có, gồm optimistic cache update, rollback và inverse mutation.
 
-- add → Undo gọi remove;
-- remove → Undo gọi add.
-
-Các server mutation tools không còn được đăng ký trực tiếp trên `ghibliAgent`, tránh bypass UI risk control hoặc trùng tool name. Agent chỉ nhận các mutation frontend đã được runtime allowlist.
+Watchlist add/remove ban đầu thuộc nhóm này nhưng đã được nâng lên `confirmation_required`; xem [Watchlist write approval](2026-10-06-watchlist-write-approval.md).
 
 ## 6. Confirmation-required tools
+
+### Watchlist writes
+
+`add_watchlist_film` và `remove_watchlist_film` dùng `useHumanInTheLoop`. Tool dừng ở approval card; REST mutation chỉ chạy trong callback Approve. Decline trả kết quả cho agent mà không thay đổi dữ liệu. Watchlist không có editable fields, nên update request được tách thành add/remove và mỗi mutation cần approval riêng.
 
 ### Delete conversation
 
@@ -92,22 +93,23 @@ Agent prompt được cập nhật để không báo deletion thành công khi t
 
 ## 8. Code thay đổi
 
-| File                                         | Nội dung                                                                         |
-| -------------------------------------------- | -------------------------------------------------------------------------------- |
-| `src/lib/practice/tool-risk.ts`              | Central risk registry và fail-closed fallback                                    |
-| `src/lib/practice/tool-risk.test.ts`         | Unit test cho ba risk levels và unknown mutations                                |
-| `src/components/practice/practice-tools.tsx` | Frontend mutation tools, Undo orchestration và confirmation-only delete handlers |
-| `src/components/practice/ghibli-chat.tsx`    | Delete-file confirmation dialog và props cho shared mutation/Undo                |
-| `src/pages/practice/ghibli.tsx`              | Truyền conversation mutation pipeline và Undo controller vào chat                |
-| `src/mastra/agents/ghibli-agent.ts`          | Loại server mutation bypass và mô tả risk behavior                               |
-| `src/mastra/routes/practice.ts`              | Allowlist frontend mutation/delete-file tools                                    |
+| File                                                  | Nội dung                                                                     |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `src/lib/practice/tool-risk.ts`                       | Central risk registry và fail-closed fallback                                |
+| `src/lib/practice/tool-risk.test.ts`                  | Unit test cho ba risk levels và unknown mutations                            |
+| `src/components/practice/practice-tools.tsx`          | Frontend tools, HITL watchlist approval và confirmation-only delete handlers |
+| `src/components/practice/watchlist-approval-card.tsx` | Approval/decline UI cho agent-requested watchlist writes                     |
+| `src/components/practice/ghibli-chat.tsx`             | Delete-file confirmation dialog và props cho shared mutation/Undo            |
+| `src/pages/practice/ghibli.tsx`                       | Truyền conversation mutation pipeline và Undo controller vào chat            |
+| `src/mastra/agents/ghibli-agent.ts`                   | Loại server mutation bypass và mô tả risk behavior                           |
+| `src/mastra/routes/practice.ts`                       | Allowlist frontend mutation/delete-file tools                                |
 
 Không có database migration hoặc dependency mới.
 
 ## 9. Security và consistency
 
 - Tool name từ model không tự quyết định risk; registry do application sở hữu.
-- High-risk handler không gọi DELETE trước confirmation.
+- High-risk handler không gọi mutation trước confirmation.
 - Backend tiếp tục kiểm tra thread/resource ownership và schema UUID.
 - Saved attachment không thể bị xóa riêng để tránh message/citation trỏ tới file đã mất.
 - Undo gọi server API thật, vì vậy trạng thái vẫn đúng sau reload.
@@ -118,21 +120,22 @@ Không có database migration hoặc dependency mới.
 Automated tests kiểm tra:
 
 - theme/sidebar/search là `no_confirmation`;
-- conversation/watchlist mutations là `undoable`;
-- delete conversation/delete file là `confirmation_required`;
+- conversation metadata mutations là `undoable`;
+- watchlist add/update/delete/remove và delete conversation/file là `confirmation_required`;
 - unknown add/delete mutations fail closed;
 - toàn bộ persistence, message action, semantic search, citation và optimistic-update tests cũ không regression.
 
 Kết quả verification được ghi trong `docs/practice-acceptance.md`.
 
 ```text
-npm test                  9 files, 30 tests passed
+npm test                  11 files, 37 tests passed
 npm run typecheck         passed
 npx eslint src scripts    passed
 npm run vite:build        passed (existing externalization and large-chunk warnings)
+npm run mastra:build      passed
 ```
 
-`npm run mastra:build` vẫn bị Windows process khác giữ lock trong generated `.mastra/output/node_modules` (`EPERM` tại package `ajv`). Backend TypeScript đã được kiểm tra bởi project typecheck; cần dừng process đang dùng output cũ rồi chạy lại Mastra bundle.
+Mastra build cuối cùng đã hoàn tất bundling và dependency installation. Build script bỏ qua package-lock generation trên Windows theo behavior hiện có.
 
 ## 11. Giới hạn
 

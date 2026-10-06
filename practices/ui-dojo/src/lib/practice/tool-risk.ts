@@ -15,8 +15,10 @@ const PRACTICE_TOOL_RISK: Readonly<Record<string, ToolRiskLevel>> = {
   ghibliFilms: "no_confirmation",
   ghibliCharacters: "no_confirmation",
   update_conversation: "undoable",
-  add_watchlist_film: "undoable",
-  remove_watchlist_film: "undoable",
+  add_watchlist_film: "confirmation_required",
+  remove_watchlist_film: "confirmation_required",
+  update_watchlist_film: "confirmation_required",
+  delete_watchlist_film: "confirmation_required",
   delete_conversation: "confirmation_required",
   delete_attachment: "confirmation_required",
 };

@@ -38,7 +38,8 @@
 - 2026-10-05: added durable message actions for edit/resend, regenerate, copy, retry failed tools and persisted `Interrupted` responses. Timeline revisions are serialized per thread, discard stale descendants, preserve attachment references and rehydrate canonical history before rerunning the agent.
 - 2026-10-06: centralized tool risk policy for Ghibli Workspace. Harmless UI/read tools run immediately, conversation/watchlist mutations run through frontend-controlled Undo, and conversation/file deletion only opens explicit confirmation. Unknown mutation-shaped tools fail closed.
 - 2026-10-06: added a persisted `present_plan` frontend tool and accessible numbered timeline for multi-step requests. The strict 2–6 step public contract excludes reasoning fields, while single-step requests continue without planning UI.
-- All A01–A26 acceptance scenarios verified with automated tests and/or browser evidence.
+- 2026-10-06: upgraded all agent-requested watchlist writes to native human-in-the-loop approval. Add/remove API calls now exist only behind Approve; update requests decompose into separately approved writes, and Decline leaves data unchanged.
+- All A01–A27 acceptance scenarios verified with automated tests and/or browser evidence.
 - Windows test cleanup now occurs in a parent process after workers exit; this fixed LibSQL native file locks without skipping assertions or deleting shared/user data.
 
 ## Migration/recovery boundary

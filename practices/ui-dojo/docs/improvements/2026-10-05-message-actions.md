@@ -131,7 +131,7 @@ npx eslint src scripts passed
 npm run vite:build    passed (existing externalization and large-chunk warnings)
 ```
 
-`npm run mastra:build` đã được thử nhưng Windows giữ lock trong `.mastra/output/node_modules` cũ (`EPERM lstat ajv-formats/package.json`). Đây là artifact build sinh tự động; test service, TypeScript và frontend production bundle đều đã xác nhận code mới. Cần dừng process Mastra đang dùng output đó rồi chạy lại backend build để có bundle sạch.
+`npm run mastra:build` đã pass trong final rerun ngày 2026-10-06, gồm bundling và output dependency installation. Build script bỏ qua package-lock generation trên Windows theo behavior hiện có.
 
 ## 10. Giới hạn và bước tiếp theo
 

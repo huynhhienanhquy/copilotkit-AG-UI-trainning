@@ -13,6 +13,7 @@ Folder này ghi lại các cải tiến được bổ sung sau implementation ba
 | 2026-10-05 | Message actions              | Hoàn thành | [2026-10-05-message-actions.md](2026-10-05-message-actions.md)                           |
 | 2026-10-06 | Tool approval by risk level  | Hoàn thành | [2026-10-06-tool-approval-by-risk.md](2026-10-06-tool-approval-by-risk.md)               |
 | 2026-10-06 | Agent planning timeline      | Hoàn thành | [2026-10-06-agent-planning-timeline.md](2026-10-06-agent-planning-timeline.md)           |
+| 2026-10-06 | Watchlist write approval     | Hoàn thành | [2026-10-06-watchlist-write-approval.md](2026-10-06-watchlist-write-approval.md)         |
 
 ## Quy ước tài liệu
 
