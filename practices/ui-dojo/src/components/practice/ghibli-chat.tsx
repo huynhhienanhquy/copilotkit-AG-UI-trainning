@@ -39,6 +39,7 @@ import {
   type Attachment,
   type AttachmentPreviewTarget,
   type Conversation,
+  type ConversationSearchFilters,
   type Page,
   type WatchlistItem,
   type ThreadPatch,
@@ -142,7 +143,11 @@ type Props = {
   thread: Conversation;
   expanded: boolean;
   onExpand: (expanded: boolean) => void;
-  onSearch: (query: string, archived: boolean) => void;
+  onSearch: (
+    query: string,
+    archived: boolean,
+    filters?: ConversationSearchFilters,
+  ) => void;
   onShowFile: (file: Attachment, target?: AttachmentPreviewTarget) => void;
   onSelectConversation: (id: string) => void;
   onWatchlist: () => void;
@@ -287,7 +292,9 @@ function ChatSession(
         ...(revisedHistory ?? props.olderMessages),
         ...(revisedHistory ? [] : trimmedHistory),
         ...agent.messages,
-      ].map((message) => [message.id, message]),
+      ]
+        .filter((message) => message.role !== "reasoning")
+        .map((message) => [message.id, message]),
     ).values(),
   ];
 
@@ -330,6 +337,7 @@ function ChatSession(
         }),
         client.invalidateQueries({ queryKey: ["practice", "threads"] }),
       ]);
+      if (!mounted.current || controller.signal.aborted) return;
       if (agent.messages.length > 80) {
         let start = agent.messages.length - 60;
         while (
@@ -348,7 +356,7 @@ function ChatSession(
       setDraftIds([]);
       await copilotkit.runAgent({ agent });
     } catch (failure) {
-      if (mounted.current)
+      if (mounted.current && !controller.signal.aborted)
         setError(
           failure instanceof Error
             ? failure.message
@@ -397,7 +405,7 @@ function ChatSession(
       setEditText("");
       await copilotkit.runAgent({ agent });
     } catch (failure) {
-      if (mounted.current)
+      if (mounted.current && !controller.signal.aborted)
         setError(
           failure instanceof Error
             ? failure.message
@@ -414,6 +422,7 @@ function ChatSession(
 
   /** Abort the active stream and retain an explicit terminal state for the partial answer. */
   function stopResponse() {
+    pending.current?.abort();
     let latestUserIndex = -1;
     for (let index = agent.messages.length - 1; index >= 0; index--) {
       if (agent.messages[index].role === "user") {
@@ -485,9 +494,9 @@ function ChatSession(
       <PracticeTools
         {...props}
         files={allFiles}
-        onShowFile={(id) => {
+        onShowFile={(id, target) => {
           const file = allFiles.find((item) => item.id === id);
-          if (file) props.onShowFile(file);
+          if (file) props.onShowFile(file, target);
         }}
         onDeleteFile={setDeletingFile}
       />

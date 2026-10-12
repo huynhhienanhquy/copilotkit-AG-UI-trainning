@@ -21,16 +21,6 @@ export function restoreMessages(messages: MastraDBMessage[]): Message[] {
     const invocations = message.content.parts
       .filter((part) => part.type === "tool-invocation")
       .map((part) => part.toolInvocation);
-    const reasoning = message.content.parts
-      .filter((part) => part.type === "reasoning")
-      .map((part) => part.reasoning)
-      .join("\n");
-    if (reasoning)
-      restored.push({
-        id: `${message.id}:reasoning`,
-        role: "reasoning",
-        content: reasoning,
-      });
     restored.push({
       id: message.id,
       role: "assistant",
@@ -68,6 +58,7 @@ export function restoreMessages(messages: MastraDBMessage[]): Message[] {
         role: "tool",
         toolCallId: tool.toolCallId,
         content: typeof result === "string" ? result : JSON.stringify(result),
+        ...(tool.errorText ? { error: tool.errorText } : {}),
       });
     }
   }

@@ -10,7 +10,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { practiceApi } from "@/lib/practice/api";
-import type { ConversationSearchPage } from "@/lib/practice/contracts";
+import type {
+  ConversationSearchFilters,
+  ConversationSearchPage,
+} from "@/lib/practice/contracts";
 import { ConversationSearchCard } from "./conversation-search-card";
 
 type AttachmentFilter = "any" | "with" | "without";
@@ -19,23 +22,30 @@ type AttachmentFilter = "any" | "with" | "without";
 export function ConversationSearch({
   query: initialQuery,
   includeArchived: initialArchived,
+  filters,
   onClose,
   onSelect,
 }: {
   query: string;
   includeArchived: boolean;
+  filters?: ConversationSearchFilters;
   onClose: () => void;
   onSelect: (id: string) => void;
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [debounced, setDebounced] = useState(initialQuery);
   const [scope, setScope] = useState<"active" | "archived" | "all">(
-    initialArchived ? "all" : "active",
+    filters?.scope || (initialArchived ? "all" : "active"),
   );
-  const [updatedFrom, setUpdatedFrom] = useState("");
-  const [updatedTo, setUpdatedTo] = useState("");
-  const [attachmentFilter, setAttachmentFilter] =
-    useState<AttachmentFilter>("any");
+  const [updatedFrom, setUpdatedFrom] = useState(filters?.updatedFrom || "");
+  const [updatedTo, setUpdatedTo] = useState(filters?.updatedTo || "");
+  const [attachmentFilter, setAttachmentFilter] = useState<AttachmentFilter>(
+    filters?.hasAttachments === undefined
+      ? "any"
+      : filters.hasAttachments
+        ? "with"
+        : "without",
+  );
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query), 250);
     return () => clearTimeout(timer);

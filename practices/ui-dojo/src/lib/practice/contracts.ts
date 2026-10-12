@@ -47,6 +47,10 @@ export const listQuerySchema = z
 
 export type ThreadPatch = z.infer<typeof threadPatchSchema>;
 export type ListQuery = z.infer<typeof listQuerySchema>;
+export type ConversationSearchFilters = Pick<
+  ListQuery,
+  "scope" | "updatedFrom" | "updatedTo" | "hasAttachments"
+>;
 export type Conversation = {
   id: string;
   title: string;

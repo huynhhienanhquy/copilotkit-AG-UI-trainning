@@ -22,7 +22,17 @@ type Props = {
 };
 
 /** Preview extracted text and focus the exact page/range selected by a citation. */
-export function AttachmentPreview({ file, target, onClose }: Props) {
+export function AttachmentPreview(props: Props) {
+  const { file, target } = props;
+  return (
+    <AttachmentPreviewContent
+      key={`${file.id}:${target?.page ?? "file"}:${target?.start ?? 0}:${target?.end ?? 0}`}
+      {...props}
+    />
+  );
+}
+
+function AttachmentPreviewContent({ file, target, onClose }: Props) {
   const initialOffset = Math.max(0, (target?.start ?? 0) - 400);
   const [offset, setOffset] = useState(initialOffset);
   const [focus, setFocus] = useState(target);

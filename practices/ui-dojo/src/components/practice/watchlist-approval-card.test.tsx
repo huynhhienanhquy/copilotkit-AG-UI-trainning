@@ -68,4 +68,30 @@ describe("WatchlistApprovalCard", () => {
     expect(screen.getByText("Declined — no changes made")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
+
+  it("keeps a failed approved request actionable and shows the API error", async () => {
+    const approve = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Watchlist unavailable"))
+      .mockResolvedValueOnce(undefined);
+    render(
+      <WatchlistApprovalCard
+        action="add"
+        filmId={FILM_ID}
+        filmTitle="Castle in the Sky"
+        status="executing"
+        onApprove={approve}
+        onDecline={vi.fn(async () => undefined)}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Approve add" }));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe(
+        "Watchlist unavailable",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Approve add" }));
+    await waitFor(() => expect(approve).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });

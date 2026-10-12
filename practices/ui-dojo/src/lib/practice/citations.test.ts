@@ -38,3 +38,13 @@ it("does not activate malformed or unknown citations", () => {
     ),
   ).toBe("[source unavailable]");
 });
+
+it("preserves literal filenames containing Markdown syntax", () => {
+  const markdown = citationMarkersToMarkdown(
+    citationMarker({ attachmentId, page: 2, start: 10, end: 25 }),
+    () => "notes\\[final] _draft_ <review>.pdf",
+  );
+  expect(markdown).toBe(
+    `[notes\\\\\\[final\\] \\_draft\\_ \\<review\\>.pdf · p. 2](#attachment-citation:${attachmentId}:p2:10-25)`,
+  );
+});

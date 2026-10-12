@@ -9,6 +9,7 @@ import type {
   ThreadPatch,
 } from "../../lib/practice/contracts";
 import { DEFAULT_CONVERSATION_TITLE } from "../../lib/practice/contracts";
+import { toolResultHasError } from "../../lib/practice/message-actions";
 import { PracticeError } from "./practice-errors";
 
 /** Convert storage dates/metadata to the browser contract without leaking resource IDs. */
@@ -219,8 +220,8 @@ export class ConversationService {
   }
 
   /**
-   * Replace or replay a turn and discard its stale descendants. Re-running from
-   * the preceding user turn also makes a failed tool call safe to retry once.
+   * Replace or replay a turn and discard its stale descendants. A tool retry
+   * retains the original results so successful actions are not replayed.
    */
   async reviseTurn(
     threadId: string,
@@ -275,9 +276,7 @@ export class ConversationService {
               part.type === "tool-invocation" &&
               (part.toolInvocation.state !== "result" ||
                 Boolean(part.toolInvocation.errorText) ||
-                (typeof part.toolInvocation.result === "object" &&
-                  part.toolInvocation.result !== null &&
-                  "error" in part.toolInvocation.result)),
+                toolResultHasError(part.toolInvocation.result)),
           )
         )
           throw new PracticeError(
@@ -285,6 +284,7 @@ export class ConversationService {
             "This response has no failed tool call to retry",
             409,
           );
+        if (input.action === "retry_tool") deleteFrom = index + 1;
       }
 
       const deletedMessageIds = messages
@@ -314,7 +314,31 @@ export class ConversationService {
       const latest = [...messages.slice(latestUserIndex + 1)]
         .reverse()
         .find((message) => message.role === "assistant");
-      if (!latest) return;
+      if (!latest) {
+        if (latestUserIndex < 0) return;
+        await this.memory.saveMessages({
+          messages: [
+            {
+              id: randomUUID(),
+              threadId,
+              resourceId: this.resourceId,
+              role: "assistant",
+              createdAt: new Date(),
+              content: {
+                format: 2,
+                parts: [
+                  {
+                    type: "text",
+                    text: "Response interrupted before an answer was received.",
+                  },
+                ],
+                metadata: { practiceStatus: "interrupted" },
+              },
+            },
+          ],
+        });
+        return;
+      }
       await this.memory.updateMessages({
         messages: [
           {

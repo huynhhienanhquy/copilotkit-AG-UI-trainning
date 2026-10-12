@@ -290,6 +290,16 @@ describe("durable conversation lifecycle", () => {
               {
                 type: "tool-invocation",
                 toolInvocation: {
+                  state: "result",
+                  toolCallId: "completed-call",
+                  toolName: "update_conversation",
+                  args: { threadId: thread.id, patch: { pinned: true } },
+                  result: { pinnedAt: "2026-10-05T11:00:01Z" },
+                },
+              },
+              {
+                type: "tool-invocation",
+                toolInvocation: {
                   state: "call",
                   toolCallId: "failed-call",
                   toolName: "set_theme",
@@ -307,7 +317,16 @@ describe("durable conversation lifecycle", () => {
     });
     expect(retried.messages.map((message) => message.id)).toEqual([
       "user-tool",
+      "assistant-failed",
     ]);
+    expect(retried.deletedMessageIds).toEqual([]);
+    expect(restoreMessages(retried.messages)).toContainEqual(
+      expect.objectContaining({
+        role: "tool",
+        toolCallId: "completed-call",
+        content: JSON.stringify({ pinnedAt: "2026-10-05T11:00:01Z" }),
+      }),
+    );
 
     await memory.saveMessages({
       messages: [
@@ -339,6 +358,7 @@ describe("durable conversation lifecycle", () => {
     );
     expect(regenerated.messages.map((message) => message.id)).toEqual([
       "user-tool",
+      "assistant-failed",
     ]);
 
     await memory.saveMessages({
@@ -374,6 +394,66 @@ describe("durable conversation lifecycle", () => {
         (message) => message.id === "assistant-complete",
       )?.content.metadata,
     ).toBeUndefined();
+    expect(restoreMessages(stoppedBeforeOutput.messages).at(-1)).toMatchObject({
+      role: "assistant",
+      name: "interrupted",
+      content: "Response interrupted before an answer was received.",
+    });
+  });
+
+  it("restores tool errors consistently and keeps private reasoning out of history", async () => {
+    const thread = await service.create();
+    await memory.saveMessages({
+      messages: [
+        {
+          id: "assistant-serialized-failure",
+          threadId: thread.id,
+          resourceId: "test-user",
+          role: "assistant",
+          createdAt: new Date(),
+          content: {
+            format: 2,
+            parts: [
+              {
+                type: "reasoning",
+                reasoning: "Private model analysis",
+                details: [],
+              },
+              { type: "text", text: "The tool failed." },
+              {
+                type: "tool-invocation",
+                toolInvocation: {
+                  state: "result",
+                  toolCallId: "serialized-failure",
+                  toolName: "ghibliFilms",
+                  args: {},
+                  result: JSON.stringify({ status: "failed" }),
+                  errorText: "Service unavailable",
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const restored = restoreMessages(
+      (await service.messages(thread.id)).messages,
+    );
+    expect(restored.some((message) => message.role === "reasoning")).toBe(
+      false,
+    );
+    expect(restored).toContainEqual(
+      expect.objectContaining({
+        role: "tool",
+        toolCallId: "serialized-failure",
+        error: "Service unavailable",
+      }),
+    );
+    await expect(
+      service.reviseTurn(thread.id, "assistant-serialized-failure", {
+        action: "retry_tool",
+      }),
+    ).resolves.toMatchObject({ deletedMessageIds: [] });
   });
 
   it("restores text and completed tool results and searches beyond the first message page", async () => {

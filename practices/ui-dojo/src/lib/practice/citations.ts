@@ -47,7 +47,7 @@ export function citationMarkersToMarkdown(
     if (!citation) return marker;
     const filename = filenameFor(citation.attachmentId);
     if (!filename) return "[source unavailable]";
-    const label = `${filename.replaceAll("[", "\\[").replaceAll("]", "\\]")} · p. ${citation.page}`;
+    const label = `${filename.replace(/[\\`*_[\]<>]/g, "\\$&")} · p. ${citation.page}`;
     return `[${label}](#attachment-citation:${citation.attachmentId}:p${citation.page}:${citation.start}-${citation.end})`;
   });
 }

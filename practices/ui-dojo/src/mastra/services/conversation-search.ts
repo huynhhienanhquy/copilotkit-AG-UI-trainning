@@ -152,17 +152,16 @@ function parseEmbedding(
   }
 }
 
-/** Split bounded text into readable, exact-range passages for semantic anchoring. */
+/** Bound each passage while retaining semantic coverage of the complete message. */
 function semanticPassages(content: string): HighlightRange[] {
-  const bounded = content.slice(0, MAX_EMBEDDING_TEXT);
   const passages: HighlightRange[] = [];
   let start = 0;
-  while (start < bounded.length) {
-    while (/\s/u.test(bounded[start] || "")) start++;
-    if (start >= bounded.length) break;
-    let end = Math.min(start + SEMANTIC_PASSAGE_SIZE, bounded.length);
-    if (end < bounded.length) {
-      const candidate = bounded.slice(start, end);
+  while (start < content.length) {
+    while (/\s/u.test(content[start] || "")) start++;
+    if (start >= content.length) break;
+    let end = Math.min(start + SEMANTIC_PASSAGE_SIZE, content.length);
+    if (end < content.length) {
+      const candidate = content.slice(start, end);
       const readableBoundary = Math.max(
         candidate.lastIndexOf("\n"),
         candidate.lastIndexOf(". ") + 1,
@@ -176,13 +175,33 @@ function semanticPassages(content: string): HighlightRange[] {
         if (space >= SEMANTIC_PASSAGE_SIZE / 2) end = start + space;
       }
     }
-    while (end > start && /\s/u.test(bounded[end - 1])) end--;
+    while (end > start && /\s/u.test(content[end - 1])) end--;
     if (end <= start)
-      end = Math.min(start + SEMANTIC_PASSAGE_SIZE, bounded.length);
+      end = Math.min(start + SEMANTIC_PASSAGE_SIZE, content.length);
     passages.push({ start, end });
     start = end;
   }
   return passages;
+}
+
+/** FTS folds accents; retain original UTF-16 positions when Unicode folding changes length. */
+function comparableText(content: string): {
+  text: string;
+  positions: HighlightRange[];
+} {
+  let text = "";
+  const positions: HighlightRange[] = [];
+  for (const match of content.matchAll(/\P{M}\p{M}*|\p{M}+/gu)) {
+    const normalized = match[0]
+      .normalize("NFKD")
+      .replace(/\p{M}/gu, "")
+      .toLocaleLowerCase();
+    const range = { start: match.index, end: match.index + match[0].length };
+    text += normalized;
+    for (let index = 0; index < normalized.length; index++)
+      positions.push(range);
+  }
+  return { text, positions };
 }
 
 function cosineSimilarity(left: number[], right: number[]): number {
@@ -230,19 +249,27 @@ function highlightedSnippet(
   query: string,
   semanticMatch?: HighlightRange,
 ): { snippet: string; highlights: HighlightRange[] } {
-  const comparable = content.normalize("NFKC").toLocaleLowerCase();
-  const phrase = query.normalize("NFKC").toLocaleLowerCase();
+  const { text: comparable, positions } = comparableText(content);
+  const phrase = comparableText(query).text;
   const matches: HighlightRange[] = [];
-  const phraseIndex = phrase ? comparable.indexOf(phrase) : -1;
-  if (phraseIndex >= 0)
-    matches.push({ start: phraseIndex, end: phraseIndex + phrase.length });
+  const addMatch = (start: number, length: number) => {
+    const first = positions[start];
+    const last = positions[start + length - 1];
+    if (first && last) matches.push({ start: first.start, end: last.end });
+  };
+  // FTS uses token prefixes. A substring in the middle of "Education" must
+  // not anchor a result for "cat" that actually matched "Catbus" later on.
+  const words = [...comparable.matchAll(/[\p{L}\p{N}]+/gu)];
+  const phraseStart = phrase
+    ? words.find((word) => comparable.startsWith(phrase, word.index))?.index
+    : undefined;
+  if (phraseStart !== undefined) addMatch(phraseStart, phrase.length);
   if (!matches.length) {
-    for (const token of queryTokens(query)) {
-      let index = comparable.indexOf(token);
-      while (index >= 0 && matches.length < 12) {
-        matches.push({ start: index, end: index + token.length });
-        index = comparable.indexOf(token, index + token.length);
-      }
+    const tokens = queryTokens(phrase);
+    for (const word of words) {
+      const token = tokens.find((candidate) => word[0].startsWith(candidate));
+      if (token) addMatch(word.index, token.length);
+      if (matches.length >= 12) break;
     }
   }
   if (
@@ -256,7 +283,10 @@ function highlightedSnippet(
   }
   const anchor = matches[0]?.start ?? 0;
   const start = Math.max(0, anchor - 80);
-  const end = Math.min(content.length, Math.max(anchor + 160, start + 240));
+  const end = Math.min(
+    content.length,
+    Math.max(anchor + 160, start + 240, matches[0]?.end || 0),
+  );
   const prefix = start ? "…" : "";
   const suffix = end < content.length ? "…" : "";
   const snippet = prefix + content.slice(start, end) + suffix;
@@ -392,7 +422,7 @@ export class ConversationSearchService {
       sql: `SELECT source_type, source_id, thread_id
         FROM practice_search_fts
         WHERE practice_search_fts MATCH ? AND resource_id = ?
-        ORDER BY bm25(practice_search_fts) LIMIT 2000`,
+        ORDER BY bm25(practice_search_fts)`,
       args: [expression, this.resourceId],
     });
     const rows = result.rows.filter((row) =>
@@ -445,7 +475,8 @@ export class ConversationSearchService {
         return (
           !saved ||
           saved.hash !== hashContent(document.content) ||
-          !saved.passages.length
+          !saved.passages.length ||
+          saved.passages.at(-1)?.end !== document.content.trimEnd().length
         );
       });
       const inputs = [query];
@@ -456,7 +487,8 @@ export class ConversationSearchService {
         const passageIndexes = passages.map((passage) =>
           passage.start === 0 && passage.end === bounded.length
             ? documentIndex
-            : inputs.push(bounded.slice(passage.start, passage.end)) - 1,
+            : inputs.push(document.content.slice(passage.start, passage.end)) -
+              1,
         );
         return { document, passages, documentIndex, passageIndexes };
       });
@@ -464,6 +496,8 @@ export class ConversationSearchService {
       if (vectors.length !== inputs.length)
         throw new Error("Embedding provider returned the wrong vector count");
       const queryVector = vectors[0];
+      if (!validVector(queryVector))
+        throw new Error("Embedding provider returned an invalid query vector");
       const statements: { sql: string; args: InValue[] }[] = [];
       pending.forEach(
         ({ document, passages, documentIndex, passageIndexes }) => {
@@ -496,7 +530,7 @@ export class ConversationSearchService {
               hashContent(document.content),
               this.model,
               JSON.stringify({
-                version: 2,
+                version: 3,
                 vector,
                 passages: passageEmbeddings,
               }),

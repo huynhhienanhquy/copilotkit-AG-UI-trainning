@@ -1,15 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import {
   useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
-} from "@tanstack/react-query";
-import type {
-  InfiniteData,
-  QueryClient,
-  QueryKey,
 } from "@tanstack/react-query";
 import { CopilotKit } from "@copilotkit/react-core";
 import "@copilotkit/react-core/v2/styles.css";
@@ -36,7 +31,7 @@ import type {
   AttachmentPreviewTarget,
   Conversation,
   Page,
-  ThreadPatch,
+  ConversationSearchFilters,
 } from "@/lib/practice/contracts";
 import { ConversationSidebar } from "@/components/practice/conversation-sidebar";
 import { ConversationSearch } from "@/components/practice/conversation-search";
@@ -47,53 +42,7 @@ import {
   UndoToastViewport,
   useUndoToast,
 } from "@/components/practice/undo-toast";
-import {
-  optimisticConversation,
-  updateConversationPages,
-} from "@/lib/practice/optimistic-updates";
-
-type ConversationMutationVariables = {
-  id: string;
-  patch: ThreadPatch;
-  announce?: boolean;
-};
-
-type ConversationMutationContext = {
-  snapshot: [QueryKey, unknown][];
-  previous?: Conversation;
-};
-
-function findCachedConversation(client: QueryClient, id: string) {
-  const detail = client.getQueryData<Conversation>(["practice", "thread", id]);
-  if (detail) return detail;
-  for (const [, data] of client.getQueriesData<
-    InfiniteData<Page<Conversation>>
-  >({ queryKey: ["practice", "threads"] })) {
-    const conversation = data?.pages
-      .flatMap((page) => page.items)
-      .find((item) => item.id === id);
-    if (conversation) return conversation;
-  }
-}
-
-function writeConversationCaches(
-  client: QueryClient,
-  conversation: Conversation,
-) {
-  const detailKey = ["practice", "thread", conversation.id] as const;
-  if (client.getQueryState(detailKey)) {
-    client.setQueryData(detailKey, conversation);
-  }
-  for (const [key] of client.getQueriesData({
-    queryKey: ["practice", "threads"],
-  })) {
-    const scope = key[2];
-    if (scope !== "active" && scope !== "archived") continue;
-    client.setQueryData<InfiniteData<Page<Conversation>>>(key, (data) =>
-      updateConversationPages(data, conversation, scope),
-    );
-  }
-}
+import { useConversationMutation } from "@/lib/practice/use-conversation-mutation";
 
 /** Compose the practice page with independent responsive conversation navigation and durable data. */
 export function GhibliPracticePage() {
@@ -109,6 +58,7 @@ export function GhibliPracticePage() {
   const [search, setSearch] = useState<{
     query: string;
     includeArchived: boolean;
+    filters?: ConversationSearchFilters;
   } | null>(null);
   const [watchlistOpen, setWatchlistOpen] = useState(false);
   const [preview, setPreview] = useState<{
@@ -119,9 +69,6 @@ export function GhibliPracticePage() {
   const [chatBusy, setChatBusy] = useState(false);
   const [error, setError] = useState("");
   const undoToast = useUndoToast();
-  const runConversationMutation = useRef<
-    ((variables: ConversationMutationVariables) => Promise<Conversation>) | null
-  >(null);
   const threads = useInfiniteQuery({
     queryKey: ["practice", "threads", scope],
     initialPageParam: 0,
@@ -139,107 +86,11 @@ export function GhibliPracticePage() {
       practiceApi<Conversation>(`/threads/${threadId}`, { signal }),
     retry: false,
   });
-  const mutation = useMutation<
-    Conversation,
-    Error,
-    ConversationMutationVariables,
-    ConversationMutationContext
-  >({
-    mutationFn: ({ id, patch }) =>
-      practiceApi<Conversation>(`/threads/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(patch),
-      }),
-    onMutate: async ({ id, patch }) => {
-      setError("");
-      await Promise.all([
-        client.cancelQueries({ queryKey: ["practice", "threads"] }),
-        client.cancelQueries({ queryKey: ["practice", "thread", id] }),
-      ]);
-      const snapshot: [QueryKey, unknown][] = [
-        ...client.getQueriesData({ queryKey: ["practice", "threads"] }),
-        ...client.getQueriesData({
-          queryKey: ["practice", "thread", id],
-          exact: true,
-        }),
-      ];
-      const previous = findCachedConversation(client, id);
-      if (previous) {
-        writeConversationCaches(
-          client,
-          optimisticConversation(previous, patch, new Date().toISOString()),
-        );
-      }
-      return { snapshot, previous };
-    },
-    onSuccess: (saved, { id, patch, announce = true }, context) => {
-      writeConversationCaches(client, saved);
-      if (!announce) return;
-      if (patch.archived !== undefined) {
-        undoToast.showUndo({
-          message: patch.archived
-            ? "Conversation archived"
-            : "Conversation restored",
-          onUndo: async () => {
-            if (!runConversationMutation.current) return;
-            await runConversationMutation.current({
-              id,
-              patch: { archived: !patch.archived },
-              announce: false,
-            });
-          },
-        });
-      } else if (patch.pinned !== undefined) {
-        undoToast.showUndo({
-          message: patch.pinned
-            ? "Conversation pinned"
-            : "Conversation unpinned",
-          onUndo: async () => {
-            if (!runConversationMutation.current) return;
-            await runConversationMutation.current({
-              id,
-              patch: { pinned: !patch.pinned },
-              announce: false,
-            });
-          },
-        });
-      } else if (
-        patch.title !== undefined &&
-        context?.previous?.title !== undefined
-      ) {
-        undoToast.showUndo({
-          message: "Conversation renamed",
-          onUndo: async () => {
-            if (!runConversationMutation.current) return;
-            await runConversationMutation.current({
-              id,
-              patch: { title: context.previous?.title },
-              announce: false,
-            });
-          },
-        });
-      }
-    },
-    onError: (failure, _variables, context) => {
-      for (const [key, data] of context?.snapshot ?? []) {
-        client.setQueryData(key, data);
-      }
-      setError(failure.message);
-    },
-    onSettled: async (_data, _failure, { id }) => {
-      await Promise.all([
-        client.invalidateQueries({ queryKey: ["practice", "threads"] }),
-        client.invalidateQueries({ queryKey: ["practice", "search"] }),
-        client.invalidateQueries({ queryKey: ["practice", "thread", id] }),
-      ]);
-    },
+  const mutation = useConversationMutation({
+    showUndo: undoToast.showUndo,
+    onMutate: () => setError(""),
+    onError: (failure) => setError(failure.message),
   });
-  useEffect(() => {
-    runConversationMutation.current = mutation.mutateAsync;
-    return () => {
-      runConversationMutation.current = null;
-    };
-  }, [mutation.mutateAsync]);
   const create = useMutation({
     mutationFn: () => practiceApi<Conversation>("/threads", { method: "POST" }),
     onSuccess: async (created) => {
@@ -309,8 +160,11 @@ export function GhibliPracticePage() {
     [mobile],
   );
   const openSearch = useCallback(
-    (query: string, includeArchived: boolean) =>
-      setSearch({ query, includeArchived }),
+    (
+      query: string,
+      includeArchived: boolean,
+      filters?: ConversationSearchFilters,
+    ) => setSearch({ query, includeArchived, filters }),
     [],
   );
   const reportBusy = useCallback((busy: boolean) => setChatBusy(busy), []);

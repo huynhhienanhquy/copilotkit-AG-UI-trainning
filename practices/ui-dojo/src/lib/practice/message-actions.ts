@@ -22,15 +22,19 @@ export function editableUserText(message: UserMessage): string {
   ).trim();
 }
 
-function resultHasError(content: string): boolean {
+/** Treat domain outcomes and approval states as results; only explicit failures are retryable. */
+export function toolResultHasError(content: unknown): boolean {
   try {
-    const result: unknown = JSON.parse(content);
+    const result: unknown =
+      typeof content === "string" ? JSON.parse(content) : content;
     if (!result || typeof result !== "object") return false;
     return (
       ("error" in result && Boolean(result.error)) ||
       ("status" in result &&
         typeof result.status === "string" &&
-        !["success", "completed", "result"].includes(result.status))
+        ["failed", "error", "interrupted", "call", "partial-call"].includes(
+          result.status,
+        ))
     );
   } catch {
     return false;
@@ -48,7 +52,9 @@ export function failedToolCallIds(
         (candidate): candidate is ToolMessage =>
           candidate.role === "tool" && candidate.toolCallId === call.id,
       );
-      return !result || Boolean(result.error) || resultHasError(result.content);
+      return (
+        !result || Boolean(result.error) || toolResultHasError(result.content)
+      );
     })
     .map((call) => call.id);
 }

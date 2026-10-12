@@ -97,14 +97,14 @@ export function WatchlistApprovalCard({
               <Button
                 type="button"
                 variant="outline"
-                disabled={pending !== null}
+                disabled={pending !== null || !onDecline}
                 onClick={() => void decide("decline", onDecline)}
               >
                 {pending === "decline" ? "Declining…" : "Decline"}
               </Button>
               <Button
                 type="button"
-                disabled={pending !== null}
+                disabled={pending !== null || !onApprove}
                 onClick={() => void decide("approve", onApprove)}
               >
                 {pending === "approve" ? "Applying…" : `Approve ${action}`}

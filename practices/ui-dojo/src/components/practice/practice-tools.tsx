@@ -5,7 +5,6 @@ import {
   useHumanInTheLoop,
   useRenderTool,
 } from "@copilotkit/react-core/v2";
-import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme-provider";
@@ -13,20 +12,20 @@ import type {
   Attachment,
   AttachmentPreviewTarget,
   Conversation,
+  ConversationSearchFilters,
   ConversationSearchPage,
   Extraction,
-  Film,
   ThreadPatch,
   WatchlistItem,
 } from "@/lib/practice/contracts";
 import { threadPatchSchema } from "@/lib/practice/contracts";
-import { practiceApi } from "@/lib/practice/api";
+import { useWatchlistMutation } from "@/lib/practice/use-watchlist-mutation";
 import { planningTimelineSchema } from "@/lib/practice/planning";
 import { requiresToolConfirmation } from "@/lib/practice/tool-risk";
 import type { UndoToastRequest } from "./undo-toast";
 import { ConversationSearchCard } from "./conversation-search-card";
 import { PlanningTimeline } from "./planning-timeline";
-import { WatchlistApprovalCard } from "./watchlist-approval-card";
+import { WatchlistToolApproval } from "./watchlist-tool-approval";
 
 const watchlistApprovalSchema = z
   .object({
@@ -36,7 +35,9 @@ const watchlistApprovalSchema = z
       .trim()
       .min(1)
       .max(200)
-      .describe("Catalog title shown to the user for approval."),
+      .describe(
+        "Catalog title hint; the UI verifies the film by its ID before approval.",
+      ),
   })
   .strict();
 
@@ -45,7 +46,11 @@ type Props = {
   files: Attachment[];
   expanded: boolean;
   onExpand: (expanded: boolean) => void;
-  onSearch: (query: string, archived: boolean) => void;
+  onSearch: (
+    query: string,
+    archived: boolean,
+    filters?: ConversationSearchFilters,
+  ) => void;
   onSelectConversation: (id: string) => void;
   onShowFile: (id: string, target?: AttachmentPreviewTarget) => void;
   onWatchlist: () => void;
@@ -61,53 +66,14 @@ type Props = {
 /** Register tools beneath the chat provider; restored results only render and never execute handlers. */
 export function PracticeTools(props: Props) {
   const { theme, setTheme } = useTheme();
-  const client = useQueryClient();
+  const watchlistMutation = useWatchlistMutation(props.showUndo);
 
-  async function refreshPracticeData() {
-    await Promise.all([
-      client.invalidateQueries({ queryKey: ["practice", "watchlist"] }),
-      client.invalidateQueries({ queryKey: ["practice", "threads"] }),
-      client.invalidateQueries({ queryKey: ["practice", "search"] }),
-    ]);
+  async function addWatchlistFilm(filmId: string) {
+    return watchlistMutation.mutateAsync({ filmId, method: "PUT" });
   }
 
-  async function addWatchlistFilm(filmId: string, announce = true) {
-    const result = await practiceApi<{
-      status: "added" | "already_exists";
-      film: Film;
-    }>(`/watchlist/${filmId}`, { method: "PUT" });
-    await refreshPracticeData();
-    if (announce && result.status === "added")
-      props.showUndo({
-        message: `${result.film.title} added to watchlist`,
-        onUndo: async () => {
-          await removeWatchlistFilm(filmId, false);
-        },
-      });
-    return result;
-  }
-
-  async function removeWatchlistFilm(filmId: string, announce = true) {
-    let film = client
-      .getQueryData<WatchlistItem[]>(["practice", "watchlist"])
-      ?.find((item) => item.id === filmId);
-    if (!film) {
-      const current = await practiceApi<WatchlistItem[]>("/watchlist");
-      film = current.find((item) => item.id === filmId);
-    }
-    const result = await practiceApi<{
-      status: "removed" | "not_found";
-      filmId: string;
-    }>(`/watchlist/${filmId}`, { method: "DELETE" });
-    await refreshPracticeData();
-    if (announce && result.status === "removed")
-      props.showUndo({
-        message: `${film?.title || "Film"} removed from watchlist`,
-        onUndo: async () => {
-          await addWatchlistFilm(filmId, false);
-        },
-      });
-    return result;
+  async function removeWatchlistFilm(filmId: string) {
+    return watchlistMutation.mutateAsync({ filmId, method: "DELETE" });
   }
   useAgentContext({
     description:
@@ -176,30 +142,33 @@ export function PracticeTools(props: Props) {
       return { opened: true, query: query || "" };
     },
   });
-  useFrontendTool({
-    name: "show_attachment",
-    description:
-      "Open a preview of a file attached to this conversation, optionally focused on an extracted source range.",
-    parameters: z.object({
-      attachmentId: z.string().uuid(),
-      page: z.number().int().min(1).optional(),
-      start: z.number().int().min(0).optional(),
-      end: z.number().int().min(1).optional(),
-    }),
-    handler: async ({ attachmentId, page, start, end }) => {
-      if (!props.files.some((file) => file.id === attachmentId))
-        return { error: "Attachment not found in this conversation" };
-      const target =
-        page !== undefined &&
-        start !== undefined &&
-        end !== undefined &&
-        end > start
-          ? { page, start, end }
-          : undefined;
-      props.onShowFile(attachmentId, target);
-      return { opened: true, attachmentId, target };
+  useFrontendTool(
+    {
+      name: "show_attachment",
+      description:
+        "Open a preview of a file attached to this conversation, optionally focused on an extracted source range.",
+      parameters: z.object({
+        attachmentId: z.string().uuid(),
+        page: z.number().int().min(1).optional(),
+        start: z.number().int().min(0).optional(),
+        end: z.number().int().min(1).optional(),
+      }),
+      handler: async ({ attachmentId, page, start, end }) => {
+        if (!props.files.some((file) => file.id === attachmentId))
+          return { error: "Attachment not found in this conversation" };
+        const target =
+          page !== undefined &&
+          start !== undefined &&
+          end !== undefined &&
+          end > start
+            ? { page, start, end }
+            : undefined;
+        props.onShowFile(attachmentId, target);
+        return { opened: true, attachmentId, target };
+      },
     },
-  });
+    [props.files],
+  );
   useFrontendTool({
     name: "update_conversation",
     description:
@@ -220,19 +189,20 @@ export function PracticeTools(props: Props) {
       if (tool.status === "executing") {
         const { args, respond } = tool;
         return (
-          <WatchlistApprovalCard
+          <WatchlistToolApproval
+            key={args.filmId}
             action="add"
             filmId={args.filmId}
-            filmTitle={args.filmTitle}
             status={tool.status}
-            onApprove={async () => {
-              const result = await addWatchlistFilm(args.filmId);
-              await respond({ approved: true, action: "add", result });
+            onApprove={async (film) => {
+              const result = await addWatchlistFilm(film.id);
+              await respond({ approved: true, action: "add", film, result });
             }}
-            onDecline={() =>
+            onDecline={(film) =>
               respond({
                 approved: false,
                 action: "add",
+                film,
                 message: "The user declined the watchlist change.",
               })
             }
@@ -240,10 +210,9 @@ export function PracticeTools(props: Props) {
         );
       }
       return (
-        <WatchlistApprovalCard
+        <WatchlistToolApproval
           action="add"
           filmId={tool.args.filmId}
-          filmTitle={tool.args.filmTitle}
           status={tool.status}
           result={tool.result}
         />
@@ -259,19 +228,20 @@ export function PracticeTools(props: Props) {
       if (tool.status === "executing") {
         const { args, respond } = tool;
         return (
-          <WatchlistApprovalCard
+          <WatchlistToolApproval
+            key={args.filmId}
             action="remove"
             filmId={args.filmId}
-            filmTitle={args.filmTitle}
             status={tool.status}
-            onApprove={async () => {
-              const result = await removeWatchlistFilm(args.filmId);
-              await respond({ approved: true, action: "remove", result });
+            onApprove={async (film) => {
+              const result = await removeWatchlistFilm(film.id);
+              await respond({ approved: true, action: "remove", film, result });
             }}
-            onDecline={() =>
+            onDecline={(film) =>
               respond({
                 approved: false,
                 action: "remove",
+                film,
                 message: "The user declined the watchlist change.",
               })
             }
@@ -279,10 +249,9 @@ export function PracticeTools(props: Props) {
         );
       }
       return (
-        <WatchlistApprovalCard
+        <WatchlistToolApproval
           action="remove"
           filmId={tool.args.filmId}
-          filmTitle={tool.args.filmTitle}
           status={tool.status}
           result={tool.result}
         />
@@ -307,28 +276,32 @@ export function PracticeTools(props: Props) {
       };
     },
   });
-  useFrontendTool({
-    name: "delete_attachment",
-    description:
-      "Request deletion of a draft file. This only opens a confirmation dialog; it never deletes immediately.",
-    parameters: z.object({ attachmentId: z.string().uuid() }),
-    handler: async ({ attachmentId }) => {
-      if (!requiresToolConfirmation("delete_attachment"))
-        throw new Error("Delete attachment must require confirmation");
-      const file = props.files.find((item) => item.id === attachmentId);
-      if (!file) return { error: "Attachment not found in this conversation" };
-      if (file.messageId)
+  useFrontendTool(
+    {
+      name: "delete_attachment",
+      description:
+        "Request deletion of a draft file. This only opens a confirmation dialog; it never deletes immediately.",
+      parameters: z.object({ attachmentId: z.string().uuid() }),
+      handler: async ({ attachmentId }) => {
+        if (!requiresToolConfirmation("delete_attachment"))
+          throw new Error("Delete attachment must require confirmation");
+        const file = props.files.find((item) => item.id === attachmentId);
+        if (!file)
+          return { error: "Attachment not found in this conversation" };
+        if (file.messageId)
+          return {
+            error:
+              "Saved attachments are removed with their conversation. Delete the conversation instead.",
+          };
+        props.onDeleteFile(file);
         return {
-          error:
-            "Saved attachments are removed with their conversation. Delete the conversation instead.",
+          status: "awaiting_user_confirmation",
+          message: "File deletion has not been performed.",
         };
-      props.onDeleteFile(file);
-      return {
-        status: "awaiting_user_confirmation",
-        message: "File deletion has not been performed.",
-      };
+      },
     },
-  });
+    [props.files],
+  );
   useRenderTool({
     name: "list_watchlist",
     parameters: z.object({}),
@@ -369,71 +342,74 @@ export function PracticeTools(props: Props) {
       );
     },
   });
-  useRenderTool({
-    name: "extract_attachment",
-    parameters: z.object({
-      attachmentId: z.string().uuid(),
-      offset: z.number().int().min(0).optional(),
-    }),
-    render: ({ status, result }) => {
-      let decoded: unknown = result;
-      if (typeof result === "string") {
-        try {
-          decoded = JSON.parse(result);
-        } catch {
-          decoded = null;
+  useRenderTool(
+    {
+      name: "extract_attachment",
+      parameters: z.object({
+        attachmentId: z.string().uuid(),
+        offset: z.number().int().min(0).optional(),
+      }),
+      render: ({ status, result }) => {
+        let decoded: unknown = result;
+        if (typeof result === "string") {
+          try {
+            decoded = JSON.parse(result);
+          } catch {
+            decoded = null;
+          }
         }
-      }
-      const extraction =
-        decoded &&
-        typeof decoded === "object" &&
-        typeof (decoded as Extraction).attachmentId === "string" &&
-        Array.isArray((decoded as Extraction).chunks)
-          ? (decoded as Extraction)
-          : null;
-      const file = extraction
-        ? props.files.find((item) => item.id === extraction.attachmentId)
-        : undefined;
-      return (
-        <div className="my-2 space-y-2 rounded-lg border p-3">
-          <div>
-            <p className="font-medium">Document sources</p>
-            <p className="text-xs text-muted-foreground">
-              {status !== "complete"
-                ? "Extracting page-aware passages…"
-                : extraction
-                  ? `${extraction.filename} · characters ${extraction.offset + 1}\u2013${extraction.offset + extraction.text.length}`
-                  : "Source passages unavailable"}
-            </p>
-          </div>
-          {file && extraction && (
-            <div className="flex flex-wrap gap-2">
-              {extraction.chunks.map((chunk) => (
-                <Button
-                  key={`${chunk.page}-${chunk.start}-${chunk.end}`}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-auto whitespace-normal text-left"
-                  title={`Characters ${chunk.start + 1}\u2013${chunk.end}`}
-                  onClick={() =>
-                    props.onShowFile(file.id, {
-                      page: chunk.page,
-                      start: chunk.start,
-                      end: chunk.end,
-                    })
-                  }
-                >
-                  {chunk.filename} · p. {chunk.page} · {chunk.start + 1}\u2013
-                  {chunk.end}
-                </Button>
-              ))}
+        const extraction =
+          decoded &&
+          typeof decoded === "object" &&
+          typeof (decoded as Extraction).attachmentId === "string" &&
+          Array.isArray((decoded as Extraction).chunks)
+            ? (decoded as Extraction)
+            : null;
+        const file = extraction
+          ? props.files.find((item) => item.id === extraction.attachmentId)
+          : undefined;
+        return (
+          <div className="my-2 space-y-2 rounded-lg border p-3">
+            <div>
+              <p className="font-medium">Document sources</p>
+              <p className="text-xs text-muted-foreground">
+                {status !== "complete"
+                  ? "Extracting page-aware passages…"
+                  : extraction
+                    ? `${extraction.filename} · characters ${extraction.offset + 1}\u2013${extraction.offset + extraction.text.length}`
+                    : "Source passages unavailable"}
+              </p>
             </div>
-          )}
-        </div>
-      );
+            {file && extraction && (
+              <div className="flex flex-wrap gap-2">
+                {extraction.chunks.map((chunk) => (
+                  <Button
+                    key={`${chunk.page}-${chunk.start}-${chunk.end}`}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-auto whitespace-normal text-left"
+                    title={`Characters ${chunk.start + 1}\u2013${chunk.end}`}
+                    onClick={() =>
+                      props.onShowFile(file.id, {
+                        page: chunk.page,
+                        start: chunk.start,
+                        end: chunk.end,
+                      })
+                    }
+                  >
+                    {chunk.filename} · p. {chunk.page} · {chunk.start + 1}\u2013
+                    {chunk.end}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
-  });
+    [props.files],
+  );
   useRenderTool({
     name: "find_conversations",
     parameters: z.object({
@@ -444,7 +420,7 @@ export function PracticeTools(props: Props) {
       hasAttachments: z.boolean().optional(),
       page: z.number().int().min(0).optional(),
     }),
-    render: ({ status, result }) => {
+    render: ({ status, result, parameters: args }) => {
       let decoded: unknown = result;
       if (typeof result === "string") {
         try {
@@ -482,7 +458,18 @@ export function PracticeTools(props: Props) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => props.onSearch("", true)}
+              onClick={() =>
+                props.onSearch(
+                  args.query || "",
+                  (args.scope || "active") !== "active",
+                  {
+                    scope: args.scope || "active",
+                    updatedFrom: args.updatedFrom,
+                    updatedTo: args.updatedTo,
+                    hasAttachments: args.hasAttachments,
+                  },
+                )
+              }
             >
               Open search for more results
             </Button>

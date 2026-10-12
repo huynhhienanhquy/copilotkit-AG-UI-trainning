@@ -38,6 +38,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   database.close();
+  vi.restoreAllMocks();
 });
 
 function fixtureVector(text: string): number[] {
@@ -54,6 +55,71 @@ function fixtureVector(text: string): number[] {
 }
 
 describe("hybrid conversation search", () => {
+  it("anchors prefix highlights at matching tokens rather than substrings inside words", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const search = new ConversationSearchService(
+      database,
+      conversations,
+      attachments,
+      "search-user",
+      async () => {
+        throw new Error("Provider unavailable");
+      },
+      "fixture-model",
+    );
+    const thread = await conversations.create();
+    await conversations.saveUserMessage(
+      thread.id,
+      randomUUID(),
+      `Education notes. ${"Unrelated production notes. ".repeat(25)}Catbus arrives at dusk.`,
+    );
+    const result = await search.search({
+      query: "cat",
+      scope: "active",
+      page: 0,
+    });
+    expect(result.searchMode).toBe("lexical");
+    expect(result.items).toHaveLength(1);
+    const match = result.items[0];
+    expect(match.snippet).toContain("Catbus arrives");
+    expect(match.snippet).not.toContain("Education");
+    const range = match.snippetHighlights![0];
+    expect(match.snippet!.slice(range.start, range.end)).toBe("Cat");
+  });
+
+  it("retains the semantic passage when the query occurs only inside an unrelated word", async () => {
+    const search = new ConversationSearchService(
+      database,
+      conversations,
+      attachments,
+      "search-user",
+      async (texts) =>
+        texts.map((text) =>
+          text === "cat" || text.includes("Totoro") ? [1, 0] : [0, 1],
+        ),
+      "fixture-model",
+    );
+    const thread = await conversations.create();
+    await conversations.saveUserMessage(
+      thread.id,
+      randomUUID(),
+      `Education notes. ${"Unrelated production notes. ".repeat(25)}Totoro waits at dusk.`,
+    );
+    const result = await search.search({
+      query: "cat",
+      scope: "active",
+      page: 0,
+    });
+    expect(result.items).toHaveLength(1);
+    const match = result.items[0];
+    expect(match.lexicalScore).toBe(0);
+    expect(match.snippet).toContain("Totoro waits");
+    const range = match.snippetHighlights![0];
+    expect(match.snippet!.slice(range.start, range.end)).toContain(
+      "Totoro waits",
+    );
+  });
+
   it("combines semantic and full-text ranking, highlights matches and caches document embeddings", async () => {
     const calls: string[][] = [];
     const embed: EmbeddingProvider = vi.fn(async (texts) => {
@@ -128,7 +194,172 @@ describe("hybrid conversation search", () => {
     ).toContain("quarterly finance");
 
     expect(calls[0].length).toBeGreaterThan(1);
+    expect(calls[0]).toContain("Weekend animation");
+    expect(calls[0]).toContain("Work notes");
     expect(calls[1]).toEqual(["quarterly finance"]);
+  });
+
+  it("searches semantic passages beyond the bounded document embedding", async () => {
+    const search = new ConversationSearchService(
+      database,
+      conversations,
+      attachments,
+      "search-user",
+      async (texts) => texts.map(fixtureVector),
+      "fixture-model",
+    );
+    const thread = await conversations.create();
+    const text = `${"Unrelated production notes. ".repeat(500)}\nTotoro waits beside the Catbus at dusk.`;
+    expect(text.indexOf("Totoro")).toBeGreaterThan(12_000);
+    await conversations.saveUserMessage(thread.id, randomUUID(), text);
+
+    const result = await search.search({
+      query: "forest spirit",
+      scope: "active",
+      page: 0,
+    });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe(thread.id);
+    expect(result.items[0].snippet).toContain("Totoro waits beside the Catbus");
+    const highlight = result.items[0].snippetHighlights![0];
+    expect(
+      result.items[0].snippet!.slice(highlight.start, highlight.end),
+    ).toContain("Totoro waits beside the Catbus");
+  });
+
+  it("re-embeds renamed titles and retains a semantic title match", async () => {
+    const calls: string[][] = [];
+    const search = new ConversationSearchService(
+      database,
+      conversations,
+      attachments,
+      "search-user",
+      async (texts) => {
+        calls.push([...texts]);
+        return texts.map(fixtureVector);
+      },
+      "fixture-model",
+    );
+    const thread = await conversations.create();
+    await conversations.update(thread.id, { title: "Totoro weekend" });
+    const first = await search.search({
+      query: "forest spirit",
+      scope: "active",
+      page: 0,
+    });
+    expect(first.items[0]).toMatchObject({
+      id: thread.id,
+      matchSource: "title",
+      semanticScore: 1,
+    });
+    await conversations.update(thread.id, { title: "Quarterly finance" });
+    const renamed = await search.search({
+      query: "forest spirit",
+      scope: "active",
+      page: 0,
+    });
+    expect(renamed.items).toEqual([]);
+    expect(calls[1]).toEqual(["forest spirit", "Quarterly finance"]);
+  });
+
+  it("preserves original Unicode ranges and accent highlights when embeddings fail", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const embed: EmbeddingProvider = vi.fn(async () => {
+      throw new Error("Provider unavailable");
+    });
+    const search = new ConversationSearchService(
+      database,
+      conversations,
+      attachments,
+      "search-user",
+      embed,
+      "fixture-model",
+    );
+    const thread = await conversations.create();
+    await conversations.saveUserMessage(
+      thread.id,
+      randomUUID(),
+      "ﬃ café and café recommendations.",
+    );
+    for (const [query, expected] of [
+      ["recommendations", "recommendations"],
+      ["cafe", "café"],
+    ]) {
+      const result = await search.search({ query, scope: "active", page: 0 });
+      expect(result.searchMode).toBe("lexical");
+      expect(result.items).toHaveLength(1);
+      const highlight = result.items[0].snippetHighlights![0];
+      expect(
+        result.items[0].snippet!.slice(highlight.start, highlight.end),
+      ).toBe(expected);
+    }
+    expect(embed).toHaveBeenCalledOnce();
+  });
+
+  it("does not let out-of-scope index rows exhaust the full-text candidate limit", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const search = new ConversationSearchService(
+      database,
+      conversations,
+      attachments,
+      "search-user",
+      async () => {
+        throw new Error("Provider unavailable");
+      },
+      "fixture-model",
+    );
+    const thread = await conversations.create();
+    await conversations.saveUserMessage(
+      thread.id,
+      randomUUID(),
+      `Totoro ${"production notes ".repeat(30)}`,
+    );
+    // Archived or stale rows can remain indexed while only active threads are searched.
+    await database.batch(
+      Array.from({ length: 2001 }, (_, index) => ({
+        sql: "INSERT INTO practice_search_fts(resource_id, thread_id, source_type, source_id, content) VALUES(?, ?, ?, ?, ?)",
+        args: [
+          "search-user",
+          `excluded-${index}`,
+          "title",
+          `excluded-${index}`,
+          "Totoro",
+        ],
+      })),
+      "write",
+    );
+    const result = await search.search({
+      query: "Totoro",
+      scope: "active",
+      page: 0,
+    });
+    expect(result.searchMode).toBe("lexical");
+    expect(result.items.map((item) => item.id)).toEqual([thread.id]);
+  });
+
+  it("falls back to full-text results for an invalid query embedding", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const search = new ConversationSearchService(
+      database,
+      conversations,
+      attachments,
+      "search-user",
+      async (texts) =>
+        texts.map((text, index) =>
+          index ? fixtureVector(text) : [Number.NaN],
+        ),
+      "fixture-model",
+    );
+    const thread = await conversations.create();
+    await conversations.update(thread.id, { title: "Totoro weekend" });
+    const result = await search.search({
+      query: "Totoro",
+      scope: "active",
+      page: 0,
+    });
+    expect(result.searchMode).toBe("lexical");
+    expect(result.items[0]).toMatchObject({ id: thread.id, semanticScore: 0 });
+    expect(Number.isFinite(result.items[0].score)).toBe(true);
   });
 
   it("filters by inclusive date, attachment presence and archive status, then removes derived indexes", async () => {

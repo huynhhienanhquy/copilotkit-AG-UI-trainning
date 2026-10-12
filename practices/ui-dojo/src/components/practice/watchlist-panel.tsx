@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,13 +12,7 @@ import {
 import { practiceApi } from "@/lib/practice/api";
 import type { Film, WatchlistItem } from "@/lib/practice/contracts";
 import type { UndoToastRequest } from "@/components/practice/undo-toast";
-import { updateWatchlist } from "@/lib/practice/optimistic-updates";
-
-type WatchlistMutationVariables = {
-  film: Film;
-  method: "PUT" | "DELETE";
-  announce?: boolean;
-};
+import { useWatchlistMutation } from "@/lib/practice/use-watchlist-mutation";
 
 /** Show current saved films; buttons and agent tools share the same backend service. */
 export function WatchlistPanel({
@@ -28,7 +22,6 @@ export function WatchlistPanel({
   onClose: () => void;
   showUndo: (request: UndoToastRequest) => void;
 }) {
-  const client = useQueryClient();
   const [search, setSearch] = useState("");
   const list = useQuery({
     queryKey: ["practice", "watchlist"],
@@ -39,49 +32,7 @@ export function WatchlistPanel({
     queryKey: ["practice", "films"],
     queryFn: ({ signal }) => practiceApi<Film[]>("/films", { signal }),
   });
-  const mutation = useMutation<
-    unknown,
-    Error,
-    WatchlistMutationVariables,
-    { previous: WatchlistItem[] | undefined }
-  >({
-    mutationFn: ({ film, method }) =>
-      practiceApi(`/watchlist/${film.id}`, { method }),
-    onMutate: async ({ film, method }) => {
-      await client.cancelQueries({ queryKey: ["practice", "watchlist"] });
-      const previous = client.getQueryData<WatchlistItem[]>([
-        "practice",
-        "watchlist",
-      ]);
-      client.setQueryData<WatchlistItem[]>(["practice", "watchlist"], (items) =>
-        updateWatchlist(
-          items,
-          film,
-          method === "PUT",
-          new Date().toISOString(),
-        ),
-      );
-      return { previous };
-    },
-    onSuccess: (_result, { film, method, announce = true }) => {
-      if (method !== "DELETE" || !announce) return;
-      showUndo({
-        message: `${film.title} removed from watchlist`,
-        onUndo: async () => {
-          await mutation.mutateAsync({
-            film,
-            method: "PUT",
-            announce: false,
-          });
-        },
-      });
-    },
-    onError: (_failure, _variables, context) => {
-      client.setQueryData(["practice", "watchlist"], context?.previous);
-    },
-    onSettled: () =>
-      client.invalidateQueries({ queryKey: ["practice", "watchlist"] }),
-  });
+  const mutation = useWatchlistMutation(showUndo);
   return (
     <Dialog
       open
@@ -130,7 +81,9 @@ export function WatchlistPanel({
               <Button
                 variant="outline"
                 disabled={mutation.isPending}
-                onClick={() => mutation.mutate({ film, method: "DELETE" })}
+                onClick={() =>
+                  mutation.mutate({ filmId: film.id, film, method: "DELETE" })
+                }
                 aria-label={`Remove ${film.title}`}
               >
                 Remove
@@ -177,7 +130,9 @@ export function WatchlistPanel({
                     list.isPending ||
                     list.data?.some((item) => item.id === film.id)
                   }
-                  onClick={() => mutation.mutate({ film, method: "PUT" })}
+                  onClick={() =>
+                    mutation.mutate({ filmId: film.id, film, method: "PUT" })
+                  }
                   aria-label={`Add ${film.title}`}
                 >
                   {list.data?.some((item) => item.id === film.id)

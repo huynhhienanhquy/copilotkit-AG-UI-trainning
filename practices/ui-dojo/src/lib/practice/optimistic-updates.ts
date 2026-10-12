@@ -9,6 +9,24 @@ import type {
 
 const THREAD_PAGE_SIZE = 30;
 
+/** Restore only fields that actually changed, including compound agent requests. */
+export function conversationUndoPatch(
+  previous: Conversation,
+  patch: ThreadPatch,
+): ThreadPatch | undefined {
+  const inverse: ThreadPatch = {};
+  if (patch.title !== undefined && patch.title !== previous.title)
+    inverse.title = previous.title;
+  if (
+    patch.archived !== undefined &&
+    patch.archived !== Boolean(previous.archivedAt)
+  )
+    inverse.archived = Boolean(previous.archivedAt);
+  if (patch.pinned !== undefined && patch.pinned !== Boolean(previous.pinnedAt))
+    inverse.pinned = Boolean(previous.pinnedAt);
+  return Object.keys(inverse).length ? inverse : undefined;
+}
+
 /** Apply the same field semantics as the server while a thread mutation is pending. */
 export function optimisticConversation(
   conversation: Conversation,
@@ -56,16 +74,16 @@ export function updateConversationPages(
   data: InfiniteData<Page<Conversation>> | undefined,
   conversation: Conversation,
   scope: "active" | "archived",
+  previous: Conversation,
 ): InfiniteData<Page<Conversation>> | undefined {
   if (!data?.pages.length) return data;
-  const existing = data.pages
-    .flatMap((page) => page.items)
-    .find((item) => item.id === conversation.id);
   const matches = belongsToScope(conversation, scope);
+  // An absent item may simply be on an unloaded page, not outside this scope.
   const total = Math.max(
     0,
     data.pages[0].total +
-      (matches && !existing ? 1 : !matches && existing ? -1 : 0),
+      Number(matches) -
+      Number(belongsToScope(previous, scope)),
   );
   const items = data.pages
     .flatMap((page) => page.items)
@@ -95,6 +113,7 @@ export function updateWatchlist(
   timestamp: string,
 ): WatchlistItem[] | undefined {
   if (!items) return items;
+  if (present && items.some((item) => item.id === film.id)) return items;
   const remaining = items.filter((item) => item.id !== film.id);
   return present ? [{ ...film, addedAt: timestamp }, ...remaining] : remaining;
 }

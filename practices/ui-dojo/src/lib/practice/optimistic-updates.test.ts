@@ -27,15 +27,17 @@ function pages(items: Conversation[]): InfiniteData<Page<Conversation>> {
 it("moves an optimistically archived conversation between scoped caches", () => {
   const archived = optimisticConversation(thread, { archived: true }, now);
   expect(
-    updateConversationPages(pages([thread]), archived, "active")?.pages[0],
+    updateConversationPages(pages([thread]), archived, "active", thread)
+      ?.pages[0],
   ).toMatchObject({ items: [], total: 0 });
   expect(
-    updateConversationPages(pages([]), archived, "archived")?.pages[0],
+    updateConversationPages(pages([]), archived, "archived", thread)?.pages[0],
   ).toMatchObject({ items: [archived], total: 1 });
 
   const restored = optimisticConversation(archived, { archived: false }, now);
   expect(
-    updateConversationPages(pages([]), restored, "active")?.pages[0].items,
+    updateConversationPages(pages([]), restored, "active", archived)?.pages[0]
+      .items,
   ).toEqual([restored]);
 });
 
@@ -47,8 +49,8 @@ it("sorts an optimistically pinned conversation first and supports its inverse",
   };
   const pinned = optimisticConversation(thread, { pinned: true }, now);
   expect(
-    updateConversationPages(pages([newer, thread]), pinned, "active")?.pages[0]
-      .items[0],
+    updateConversationPages(pages([newer, thread]), pinned, "active", thread)
+      ?.pages[0].items[0],
   ).toEqual(pinned);
   expect(
     optimisticConversation(pinned, { pinned: false }, now).pinnedAt,
@@ -69,4 +71,36 @@ it("removes and restores a watchlist item without mutating the snapshot", () => 
     { ...film, addedAt: now },
   ]);
   expect(original).toHaveLength(1);
+});
+
+it("uses scope transitions for conversations outside the loaded pages", () => {
+  const loaded = Array.from({ length: 30 }, (_, index) => ({
+    ...thread,
+    id: `loaded-${index}`,
+  }));
+  const partial = pages(loaded);
+  partial.pages[0].total = 31;
+  partial.pages[0].hasMore = true;
+
+  const archived = optimisticConversation(thread, { archived: true }, now);
+  const active = updateConversationPages(partial, archived, "active", thread)!;
+  expect(active.pages[0]).toMatchObject({ total: 30, hasMore: false });
+  const acknowledged = updateConversationPages(
+    active,
+    archived,
+    "active",
+    archived,
+  )!;
+  expect(acknowledged.pages[0].total).toBe(30);
+  expect(
+    updateConversationPages(acknowledged, thread, "active", archived)?.pages[0],
+  ).toMatchObject({ total: 31, hasMore: true });
+
+  for (const patch of [{ pinned: true }, { title: "Renamed outside page" }]) {
+    const updated = optimisticConversation(thread, patch, now);
+    expect(
+      updateConversationPages(partial, updated, "active", thread)?.pages[0],
+    ).toMatchObject({ total: 31, hasMore: true });
+  }
+  expect(partial.pages[0]).toMatchObject({ items: loaded, total: 31 });
 });

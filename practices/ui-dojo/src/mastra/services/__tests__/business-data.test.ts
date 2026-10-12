@@ -8,6 +8,7 @@ import { migratePractice } from "../../repositories/practice-database";
 import { AttachmentService, createCitationChunks } from "../attachments";
 import { WatchlistService } from "../watchlist";
 import { boundedRequest } from "../request-body";
+import { pdfFixture } from "./document-fixtures";
 
 let directory: string;
 let database: Client;
@@ -154,6 +155,40 @@ it("rejects oversized, spoofed, unsupported and invalid UTF-8 uploads before wri
       code,
     });
   expect(await service.list(thread)).toEqual([]);
+});
+
+it("keeps continuation offsets global when extraction crosses a physical page boundary", async () => {
+  const text = `${"A".repeat(21_000)}${"B".repeat(10_000)}`;
+  const parser = vi.fn(async () => ({
+    text,
+    pages: [
+      { page: 1, start: 0, end: 21_000 },
+      { page: 2, start: 21_000, end: text.length },
+    ],
+  }));
+  const service = new AttachmentService(database, "one", directory, parser);
+  const file = await service.upload(
+    randomUUID(),
+    "two-pages.pdf",
+    pdfFixture(),
+  );
+  const first = await service.extract(file.id);
+  const next = await service.extract(file.id, first.nextOffset!);
+  expect(next.offset).toBe(20_000);
+  expect(next.nextOffset).toBeNull();
+  expect(next.pages.map((page) => page.page)).toEqual([1, 2]);
+  expect(next.chunks[0]).toMatchObject({
+    attachmentId: file.id,
+    filename: file.filename,
+    page: 1,
+    start: 20_000,
+    end: 21_000,
+  });
+  expect(next.chunks[1]).toMatchObject({ page: 2, start: 21_000, end: 23_000 });
+  for (const chunk of next.chunks)
+    expect(chunk.text).toBe(text.slice(chunk.start, chunk.end));
+  expect(first.text + next.text).toBe(text);
+  expect(next.chunks.map((chunk) => chunk.text).join("")).toBe(next.text);
 });
 
 it("bounds chunked request bodies even when Content-Length is absent", async () => {
